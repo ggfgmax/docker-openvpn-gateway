@@ -271,8 +271,10 @@ def manage_sites():
                     site_info = {}
                     with open(info_path, "r") as f:
                         for line in f:
-                            if "=" in line:
+                            if "=" in line and not line.strip().startswith("#"):
                                 key, value = line.strip().split("=", 1)
+                                # 去除引号（兼容新旧格式）
+                                value = value.strip('"').strip("'")
                                 site_info[key] = value
 
                     # 检查是否已配置证书
@@ -325,19 +327,76 @@ def manage_sites():
         if not site_name:
             return jsonify({"error": "站点名称是必需的", "success": False}), 400
 
+        logger.info(f"删除站点请求: {site_name}")
+
         sites_dir = f"{OPENVPN}/sites"
+        deleted_files = []
+
         try:
             for ext in [".conf", ".info", ".key", ".crt", "-ca.crt"]:
                 file_path = os.path.join(sites_dir, f"{site_name}{ext}")
                 if os.path.exists(file_path):
                     os.remove(file_path)
+                    deleted_files.append(f"{site_name}{ext}")
+                    logger.info(f"已删除文件: {file_path}")
 
-            # 更新路由
-            run_command("ovpn_update_routes")
+            if not deleted_files:
+                logger.warning(f"站点 {site_name} 没有找到任何文件")
+                return (
+                    jsonify({"error": f"站点 {site_name} 不存在", "success": False}),
+                    404,
+                )
 
-            return jsonify({"message": f"站点 {site_name} 删除成功", "success": True})
+            # 停止站点连接进程
+            logger.info(f"停止站点 {site_name} 的连接进程")
+            pid_file = f"{OPENVPN}/site-pids/{site_name}.pid"
+            if os.path.exists(pid_file):
+                try:
+                    with open(pid_file, "r") as f:
+                        pid = f.read().strip()
+                    run_command(f"kill {pid}")
+                    os.remove(pid_file)
+                    logger.info(f"已停止站点进程 PID: {pid}")
+                except Exception as e:
+                    logger.warning(f"停止进程失败: {str(e)}")
+
+            # 更新路由配置
+            logger.info(f"更新路由配置")
+            result = run_command("ovpn_update_routes")
+            if not result["success"]:
+                logger.warning(f"更新路由失败: {result.get('stderr', '')}")
+
+            logger.info(
+                f"站点 {site_name} 删除成功，已删除: {', '.join(deleted_files)}"
+            )
+
+            # 提示用户重启服务
+            message = f"""✅ 站点 {site_name} 删除成功！
+
+已完成操作：
+• 删除站点文件: {', '.join(deleted_files)}
+• 停止站点连接进程
+• 更新路由配置（已从 site-routes.conf 中移除）
+
+⚠️ 重要：需要重启服务使配置生效
+在服务器上执行: docker restart openvpn-gateway
+
+💡 提示：
+• 主 OpenVPN 服务器需要重启才能应用新路由
+• 客户端需要重新连接
+• 已连接的客户端不会自动更新路由"""
+
+            return jsonify(
+                {
+                    "message": message,
+                    "success": True,
+                    "deleted_files": deleted_files,
+                    "need_restart": True,
+                }
+            )
         except Exception as e:
-            return jsonify({"error": str(e), "success": False}), 500
+            logger.error(f"删除站点 {site_name} 失败: {str(e)}")
+            return jsonify({"error": f"删除失败: {str(e)}", "success": False}), 500
 
 
 @app.route("/api/sites/<site_name>/cert", methods=["GET", "POST"])
@@ -667,10 +726,10 @@ def initialize():
 @app.route("/api/restart", methods=["POST"])
 @require_auth
 def restart_service():
-    """重启服务（需要在容器外部执行）"""
+    """重启服务提示（需要在容器外部执行）"""
     return jsonify(
         {
-            "message": "请在宿主机上运行: docker restart openvpn-container",
+            "message": "请在宿主机上运行: docker restart openvpn-gateway",
             "success": True,
         }
     )

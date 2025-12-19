@@ -1049,24 +1049,28 @@ remote vpn.example.com 1194
 
         // 删除站点
         async function deleteSite(name) {
-            if (!confirm(`确定要删除站点 ${name} 吗？`)) return;
+            if (!confirm(`确定要删除站点 ${name} 吗？\n\n此操作将删除站点的所有配置和证书文件。`)) return;
 
             try {
-                const response = await fetch(`/api/sites?name=${name}`, {
+                showAlert('sites', 'success', `正在删除站点 ${name}...`);
+
+                const response = await fetch(`/api/sites?name=${encodeURIComponent(name)}`, {
                     method: 'DELETE'
                 });
 
                 const result = await response.json();
 
-                if (result.success) {
-                    showAlert('sites', 'success', '站点删除成功！');
+                if (response.ok && result.success) {
+                    showAlert('sites', 'success', result.message || '站点删除成功！');
                     loadSites();
                     loadStatus();
                 } else {
                     showAlert('sites', 'error', result.error || '删除失败');
+                    console.error('删除站点失败:', result);
                 }
             } catch (error) {
                 showAlert('sites', 'error', '删除失败: ' + error.message);
+                console.error('请求异常:', error);
             }
         }
 
