@@ -4,163 +4,166 @@
 [![Docker](https://img.shields.io/badge/docker-ready-blue.svg)](https://www.docker.com/)
 [![OpenVPN](https://img.shields.io/badge/OpenVPN-2.x-green.svg)](https://openvpn.net/)
 
-> 基于 [kylemanna/docker-openvpn](https://github.com/kylemanna/docker-openvpn) 增强版，支持多云网络打通、LDAP 认证和 Web 管理界面。
+> 基于 [kylemanna/docker-openvpn](https://github.com/kylemanna/docker-openvpn) 增强版本  
+> 支持多云网络打通、LDAP 认证、Web 管理界面
 
-## ✨ 特色功能
+## ✨ 核心特性
 
-### 🌐 多云网络主入口网关
-- **一个 VPN 访问所有云平台** - 打通华为云、AWS、GCP 等多个云平台内网
-- **Site-to-Site VPN** - 自动管理到各云平台的 VPN 隧道连接
-- **智能路由** - 自动配置和推送路由规则
-- **流量转发** - 自动配置 iptables 规则
+### 🌐 多云网络主入口
+- **一键打通多云** - 连接华为云、AWS、GCP 等多个云平台
+- **Site-to-Site VPN** - 自动管理站点间 VPN 隧道
+- **智能路由** - 自动配置路由规则
+- **流量转发** - 自动设置 iptables 转发规则
+
+### 🌟 Web 管理界面
+- **零命令行操作** - 图形化配置所有功能
+- **证书一键配置** - 直接粘贴 .ovpn 内容，无需 SSH
+- **实时监控** - 查看站点、客户端状态
+- **适合小白** - 直观易用的操作界面
 
 ### 🔐 企业级认证
-- **LDAP/AD 支持** - 集成企业 LDAP 或 Active Directory
-- **双因素认证** - 支持证书 + 密码 / OTP
-- **灵活认证** - 仅证书、仅 LDAP 或组合认证
+- **LDAP/AD 支持** - 集成企业目录服务
+- **双因素认证** - 支持证书 + 密码/OTP
+- **灵活配置** - 多种认证方式组合
 
-### 🎛️ 灵活运行模式
-- **普通 VPN 模式** - 标准的 OpenVPN 服务器
-- **网关模式** - 多云网络主入口
-- **一键切换** - 轻松切换运行模式
+### 🎛️ 灵活模式切换
+- **普通 VPN 模式** - 标准远程访问
+- **网关模式** - 多云网络中心
+- **一键切换** - 无缝模式转换
 
-### 🌟 Web 管理界面 (NEW!)
-- **零命令行操作** - 图形化配置和管理
-- **实时监控** - 查看服务器、站点、客户端状态
-- **适合小白** - 无需学习复杂命令
-- **一键操作** - 证书生成、配置下载、模式切换
+## 🚀 5 分钟快速开始
 
-## 📸 界面预览
-
-### Web 管理界面
-```
-┌─────────────────────────────────────────┐
-│ 🔐 OpenVPN Web 管理界面                  │
-│                                         │
-│ 运行模式: 网关模式  LDAP: 已启用         │
-│ 站点数: 3          客户端数: 5          │
-└─────────────────────────────────────────┘
-│ [📊 概览] [⚙️ 模式] [🔑 LDAP] [🌐 站点] [👥 客户端] │
-```
-
-### 架构示意图
-```
-你的电脑
-    ↓ (连接一次)
-主入口 VPN 网关
-    ↓ (自动连接)
-    ├─→ 华为云 VPN → 华为云内网 (172.16.0.0/16)
-    ├─→ AWS VPN → AWS 内网 (10.0.0.0/16)
-    └─→ GCP VPN → GCP 内网 (192.168.0.0/16)
-```
-
-## 🚀 快速开始
-
-### 方式 1: Web 管理界面（推荐给小白）
+### 使用 Web 管理界面（推荐）
 
 ```bash
-# 1. 构建镜像
+# 1. 克隆项目
 git clone https://github.com/ggfgmax/docker-openvpn-gateway.git
 cd docker-openvpn-gateway
-bash build-gateway.sh
 
-# 2. 初始化
+# 2. 构建镜像
+bash scripts/build-gateway.sh
+
+# 3. 初始化配置
 docker volume create openvpn-data
 docker run -v openvpn-data:/etc/openvpn --rm openvpn-gateway:latest \
     ovpn_genconfig -u udp://vpn.yourdomain.com
 docker run -v openvpn-data:/etc/openvpn --rm -it openvpn-gateway:latest \
     ovpn_initpki
 
-# 3. 启动（包含 Web UI）
+# 4. 启动服务（包含 Web UI）
 docker-compose -f docker-compose-webui.yml up -d
 
-# 4. 访问 Web 界面
+# 5. 访问 Web 界面
 # 浏览器打开: http://服务器IP:8080
-# 默认用户名: admin
-# 默认密码: openvpn（⚠️ 请立即修改！）
+# 用户名: admin  密码: openvpn
 ```
 
-**详细说明**: [Web UI 快速开始](WEBUI-QUICKSTART.md)
+**⚠️ 重要**: 首次登录后请立即修改默认密码！
 
-### 方式 2: 命令行方式（适合高级用户）
+详细文档: [Web UI 快速开始](docs/quickstart-webui.md)
 
-```bash
-# 标准 OpenVPN 部署
-OVPN_DATA="ovpn-data"
-docker volume create --name $OVPN_DATA
-docker run -v $OVPN_DATA:/etc/openvpn --rm kylemanna/openvpn ovpn_genconfig -u udp://VPN.SERVERNAME.COM
-docker run -v $OVPN_DATA:/etc/openvpn --rm -it kylemanna/openvpn ovpn_initpki
-docker run -v $OVPN_DATA:/etc/openvpn -d -p 1194:1194/udp --cap-add=NET_ADMIN kylemanna/openvpn
-```
-
-**详细说明**: [中文完整指南](GETTING-STARTED-CN.md)
-
-## 📚 文档
+## 📖 文档导航
 
 ### 新手入门
-- [Web 管理界面快速开始](WEBUI-QUICKSTART.md) ⭐ 推荐
-- [中文快速开始指南](GETTING-STARTED-CN.md)
-- [项目总结](SUMMARY.md)
+- [Web UI 快速开始](docs/quickstart-webui.md) ⭐ 推荐
+- [完整部署指南](docs/getting-started.md)
+- [常见问题 FAQ](docs/faq.md)
 
 ### 功能文档
-- [多云网络主入口网关配置](docs/multi-cloud-gateway.md)
-- [LDAP/AD 认证配置](docs/ldap.md)
+- [多云网络配置](docs/multi-cloud-gateway.md)
+- [LDAP 认证配置](docs/ldap.md)
 - [运行模式切换](docs/mode-switching.md)
 - [Web UI 完整文档](docs/webui.md)
 
-### 进阶文档
-- [新功能说明](NEW-FEATURES.md)
-- [更新日志](CHANGELOG-GATEWAY.md)
-- [高级配置](docs/advanced.md)
+### 进阶内容
+- [API 文档](docs/api.md)
+- [安全最佳实践](docs/security.md)
+- [故障排查](docs/troubleshooting.md)
 
-## 🎯 使用场景
+## 🎯 典型场景
 
 ### 场景 1: 企业内部 VPN
-```bash
-# 使用 Web UI 或命令行快速部署
-docker-compose -f docker-compose-webui.yml up -d
-# 配置 LDAP 认证
-# 生成客户端证书
-```
+**需求**: 员工远程访问内网，使用 AD 账户认证
 
-**适用于**: 企业远程办公、内网访问
+```bash
+# 启动 Web UI
+docker-compose -f docker-compose-webui.yml up -d
+
+# 在 Web UI 中:
+# 1. 配置 LDAP (使用 AD 模板)
+# 2. 生成客户端证书
+# 3. 分发给员工
+```
 
 ### 场景 2: 多云环境统一访问
-```bash
-# 切换到网关模式
-# 添加华为云、AWS、GCP 站点
-# 配置 Site-to-Site VPN
-```
+**需求**: 访问华为云、AWS、GCP 多个云平台内网
 
-**适用于**: 混合云架构、多云环境
+```bash
+# 在 Web UI 中:
+# 1. 切换到"网关模式"
+# 2. 添加华为云、AWS、GCP 站点
+# 3. 粘贴各云平台 .ovpn 内容配置证书
+# 4. 重启服务
+# ✅ 客户端连接后可访问所有云平台
+```
 
 ### 场景 3: 开发测试环境
+**需求**: 连接多个测试环境 VPN
+
 ```bash
-# 连接不同的测试环境 VPN
-# 开发人员一次连接访问所有环境
+# 配置为网关模式，添加各环境站点
+# 开发人员只需一个 VPN 连接
 ```
 
-**适用于**: DevOps、测试团队
+## 📂 项目结构
 
-## 🔧 核心命令
+```
+docker-openvpn-gateway/
+├── bin/                      # 核心管理脚本
+│   ├── ovpn_genconfig       # 生成配置
+│   ├── ovpn_set_mode        # 模式切换
+│   ├── ovpn_config_ldap     # LDAP 配置
+│   ├── ovpn_add_remote_site # 添加站点
+│   └── ...
+├── webui/                    # Web 管理界面
+│   ├── app.py               # Flask 后端
+│   ├── templates/           # 前端页面
+│   └── requirements.txt
+├── docs/                     # 完整文档
+│   ├── quickstart-webui.md
+│   ├── multi-cloud-gateway.md
+│   ├── ldap.md
+│   └── ...
+├── scripts/                  # 辅助脚本
+│   ├── setup/               # 快速配置脚本
+│   ├── examples/            # 示例脚本
+│   └── tests/               # 测试脚本
+├── config/                   # 配置模板
+│   ├── config.template
+│   └── webui-config.example
+├── docker-compose-webui.yml  # Web UI 部署
+├── docker-compose-gateway.yml # 标准部署
+└── Dockerfile
+```
 
-### Web UI 操作（图形界面）
-- 访问: `http://服务器IP:8080`
-- 模式切换、LDAP 配置、站点管理、客户端管理
+## 🔧 管理命令
+
+### Web UI 操作
+访问 `http://服务器IP:8080` 完成所有配置
 
 ### 命令行操作
 
 | 命令 | 说明 |
 |------|------|
-| `ovpn_set_mode` | 切换运行模式 |
+| `ovpn_set_mode [normal\|gateway]` | 切换运行模式 |
 | `ovpn_config_ldap` | 配置 LDAP 认证 |
 | `ovpn_add_remote_site` | 添加远程站点 |
 | `ovpn_list_sites` | 列出站点状态 |
 | `ovpn_setup_gateway` | 初始化网关 |
 
-完整命令列表: [README-MULTI-CLOUD.md](README-MULTI-CLOUD.md)
+完整命令: [命令参考](docs/commands.md)
 
-## 🌟 功能对比
+## 🌟 对比原版
 
 | 功能 | 原版 | 本项目 |
 |------|------|--------|
@@ -169,16 +172,18 @@ docker-compose -f docker-compose-webui.yml up -d
 | LDAP/AD 认证 | ❌ | ✅ |
 | 运行模式切换 | ❌ | ✅ |
 | Web 管理界面 | ❌ | ✅ |
-| Site-to-Site VPN | ❌ | ✅ |
+| 证书自动配置 | ❌ | ✅ |
 
 ## 🔐 安全建议
 
 - ✅ 修改 Web UI 默认密码
-- ✅ 使用强 CA 密码
-- ✅ 配置 HTTPS（生产环境）
+- ✅ 使用 HTTPS（Nginx 反向代理）
 - ✅ 限制 Web UI 访问 IP
+- ✅ 使用强 CA 密码
 - ✅ 启用 LDAP 认证
 - ✅ 定期备份配置
+
+详细: [安全最佳实践](docs/security.md)
 
 ## 💻 系统要求
 
@@ -187,57 +192,27 @@ docker-compose -f docker-compose-webui.yml up -d
 - 2 核 CPU, 4GB 内存（推荐）
 - 10Mbps+ 带宽
 
-## 🆘 故障排查
+## 🆘 获取帮助
 
-### Web UI 无法访问
-```bash
-# 检查容器状态
-docker ps | grep openvpn
-
-# 查看日志
-docker logs openvpn-gateway
-
-# 检查端口
-docker port openvpn-gateway
-```
-
-### 连接失败
-```bash
-# 检查防火墙
-sudo ufw status
-
-# 查看 OpenVPN 日志
-docker exec openvpn-gateway cat /var/log/openvpn.log
-```
-
-更多问题: [故障排查文档](docs/multi-cloud-gateway.md#故障排查)
+- 📖 [文档中心](docs/)
+- 💬 [提交 Issue](https://github.com/ggfgmax/docker-openvpn-gateway/issues)
+- 🐛 [故障排查](docs/troubleshooting.md)
 
 ## 🤝 贡献
 
-欢迎提交 Issue 和 Pull Request！
-
-1. Fork 本项目
-2. 创建特性分支 (`git checkout -b feature/AmazingFeature`)
-3. 提交更改 (`git commit -m 'Add some AmazingFeature'`)
-4. 推送到分支 (`git push origin feature/AmazingFeature`)
-5. 开启 Pull Request
+欢迎贡献代码！请查看 [贡献指南](CONTRIBUTING.md)
 
 ## 📄 许可证
 
-本项目采用 MIT 许可证 - 详见 [LICENSE](LICENSE) 文件
+MIT License - 详见 [LICENSE](LICENSE)
 
 ## 🙏 致谢
 
-- 基于 [kylemanna/docker-openvpn](https://github.com/kylemanna/docker-openvpn)
-- 感谢所有贡献者
-
-## 📮 联系方式
-
-- 提交 Issue: [GitHub Issues](https://github.com/ggfgmax/docker-openvpn-gateway/issues)
-- 项目主页: [GitHub](https://github.com/ggfgmax/docker-openvpn-gateway)
+基于 [kylemanna/docker-openvpn](https://github.com/kylemanna/docker-openvpn)
 
 ---
 
-⭐ 如果这个项目对您有帮助，请给个 Star！
+⭐ **觉得不错？给个 Star 吧！**
 
-**立即开始**: [Web UI 快速开始](WEBUI-QUICKSTART.md) | [中文完整指南](GETTING-STARTED-CN.md)
+**快速开始**: [Web UI 快速开始](docs/quickstart-webui.md) | [完整文档](docs/)
+

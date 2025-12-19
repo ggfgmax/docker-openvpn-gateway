@@ -40,9 +40,14 @@ ADD ./otp/openvpn /etc/pam.d/
 # Create directories for multi-cloud gateway functionality
 RUN mkdir -p /etc/openvpn/sites /etc/openvpn/site-pids /var/log
 
-# Add example configurations
-ADD ./examples /usr/share/doc/openvpn/examples
-RUN chmod +x /usr/share/doc/openvpn/examples/*.sh 2>/dev/null || true
+# Add scripts
+ADD ./scripts /usr/share/doc/openvpn/scripts
+RUN chmod +x /usr/share/doc/openvpn/scripts/*.sh 2>/dev/null || true && \
+    chmod +x /usr/share/doc/openvpn/scripts/setup/*.sh 2>/dev/null || true && \
+    chmod +x /usr/share/doc/openvpn/scripts/tests/*.sh 2>/dev/null || true
+
+# Add documentation
+ADD ./docs /usr/share/doc/openvpn/docs
 
 # Add Web UI
 ADD ./webui /opt/openvpn-webui

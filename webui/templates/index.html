@@ -497,6 +497,33 @@
                 </div>
             </div>
             
+            <!-- 站点证书配置模态框 -->
+            <div id="cert-modal" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 1000;">
+                <div style="position: relative; top: 50%; left: 50%; transform: translate(-50%, -50%); background: white; padding: 30px; border-radius: 10px; max-width: 800px; max-height: 80vh; overflow-y: auto;">
+                    <h2 style="margin-bottom: 20px;">配置站点证书</h2>
+                    <p style="color: #6b7280; margin-bottom: 20px;">
+                        请将远程 VPN 服务器提供的 .ovpn 文件内容粘贴到下面的文本框中。<br>
+                        系统会自动提取证书、密钥等信息。
+                    </p>
+                    
+                    <div class="form-group">
+                        <label>站点名称</label>
+                        <input type="text" id="cert-site-name" readonly style="background: #f3f4f6;">
+                    </div>
+                    
+                    <div class="form-group">
+                        <label>.ovpn 文件内容 *</label>
+                        <textarea id="cert-ovpn-content" rows="15" style="width: 100%; padding: 10px; border: 1px solid #d1d5db; border-radius: 5px; font-family: monospace; font-size: 12px;" placeholder="粘贴 .ovpn 文件的完整内容..."></textarea>
+                        <small style="color: #6b7280;">提示: 打开远程 VPN 的 .ovpn 文件，复制全部内容粘贴到这里</small>
+                    </div>
+                    
+                    <div style="display: flex; gap: 10px; margin-top: 20px;">
+                        <button class="btn btn-primary" onclick="saveSiteCert()">保存证书配置</button>
+                        <button class="btn btn-secondary" onclick="closeCertModal()">取消</button>
+                    </div>
+                </div>
+            </div>
+            
             <!-- 客户端管理 -->
             <div id="clients" class="tab-content">
                 <h2>客户端证书管理</h2>
@@ -713,6 +740,7 @@
                             <th>远程主机</th>
                             <th>远程网段</th>
                             <th>协议</th>
+                            <th>证书状态</th>
                             <th>操作</th>
                         </tr>
                         ${sites.map(site => `
@@ -722,7 +750,15 @@
                             <td>${site.REMOTE_SUBNET}</td>
                             <td>${site.PROTOCOL}</td>
                             <td>
-                                <button class="btn btn-danger" onclick="deleteSite('${site.SITE_NAME}')">删除</button>
+                                ${site.has_cert 
+                                    ? '<span class="status-badge active">已配置</span>' 
+                                    : '<span class="status-badge inactive">未配置</span>'}
+                            </td>
+                            <td>
+                                <button class="btn btn-primary" onclick="openCertModal('${site.SITE_NAME}')" style="font-size: 12px; padding: 5px 10px;">
+                                    ${site.has_cert ? '更新证书' : '配置证书'}
+                                </button>
+                                <button class="btn btn-danger" onclick="deleteSite('${site.SITE_NAME}')" style="font-size: 12px; padding: 5px 10px;">删除</button>
                             </td>
                         </tr>
                         `).join('')}
@@ -732,6 +768,50 @@
                 document.getElementById('sites-list').innerHTML = html;
             } catch (error) {
                 document.getElementById('sites-list').innerHTML = '<p style="color: #ef4444;">加载失败</p>';
+            }
+        }
+        
+        // 打开证书配置模态框
+        function openCertModal(siteName) {
+            document.getElementById('cert-site-name').value = siteName;
+            document.getElementById('cert-ovpn-content').value = '';
+            document.getElementById('cert-modal').style.display = 'block';
+        }
+        
+        // 关闭证书配置模态框
+        function closeCertModal() {
+            document.getElementById('cert-modal').style.display = 'none';
+        }
+        
+        // 保存站点证书
+        async function saveSiteCert() {
+            const siteName = document.getElementById('cert-site-name').value;
+            const ovpnContent = document.getElementById('cert-ovpn-content').value;
+            
+            if (!ovpnContent.trim()) {
+                alert('请粘贴 .ovpn 文件内容');
+                return;
+            }
+            
+            try {
+                const response = await fetch(`/api/sites/${siteName}/cert`, {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({ovpn_content: ovpnContent})
+                });
+                
+                const result = await response.json();
+                
+                if (result.success) {
+                    showAlert('sites', 'success', result.message);
+                    closeCertModal();
+                    loadSites();
+                    loadStatus();
+                } else {
+                    alert(result.error || '配置失败');
+                }
+            } catch (error) {
+                alert('配置失败: ' + error.message);
             }
         }
         

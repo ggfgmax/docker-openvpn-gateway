@@ -223,6 +223,20 @@ def manage_sites():
                             if "=" in line:
                                 key, value = line.strip().split("=", 1)
                                 site_info[key] = value
+
+                    # 检查是否已配置证书
+                    conf_file = os.path.join(
+                        sites_dir, f"{site_info.get('SITE_NAME', '')}.conf"
+                    )
+                    if os.path.exists(conf_file):
+                        with open(conf_file, "r") as f:
+                            content = f.read()
+                            site_info["has_cert"] = (
+                                "<ca>" in content or "ca " in content
+                            )
+                    else:
+                        site_info["has_cert"] = False
+
                     sites.append(site_info)
         return jsonify(sites)
 
@@ -245,7 +259,9 @@ def manage_sites():
         result = run_command(cmd)
 
         if result["success"]:
-            return jsonify({"message": f"站点 {name} 添加成功", "success": True})
+            return jsonify(
+                {"message": f"站点 {name} 添加成功，请继续配置证书", "success": True}
+            )
         else:
             return (
                 jsonify({"error": result.get("stderr", "添加失败"), "success": False}),
@@ -271,6 +287,113 @@ def manage_sites():
             return jsonify({"message": f"站点 {site_name} 删除成功", "success": True})
         except Exception as e:
             return jsonify({"error": str(e), "success": False}), 500
+
+
+@app.route("/api/sites/<site_name>/cert", methods=["GET", "POST"])
+@require_auth
+def manage_site_cert(site_name):
+    """管理站点证书"""
+    sites_dir = f"{OPENVPN}/sites"
+    conf_file = os.path.join(sites_dir, f"{site_name}.conf")
+
+    if request.method == "GET":
+        # 获取当前证书配置（不返回敏感内容，只返回是否已配置）
+        if os.path.exists(conf_file):
+            with open(conf_file, "r") as f:
+                content = f.read()
+                has_ca = "<ca>" in content or "ca " in content
+                has_cert = "<cert>" in content or "cert " in content
+                has_key = "<key>" in content or "key " in content
+                has_tls = "<tls-auth>" in content or "tls-auth " in content
+
+                return jsonify(
+                    {
+                        "has_ca": has_ca,
+                        "has_cert": has_cert,
+                        "has_key": has_key,
+                        "has_tls": has_tls,
+                        "configured": has_ca and has_cert and has_key,
+                    }
+                )
+        return jsonify({"configured": False})
+
+    if request.method == "POST":
+        # 配置证书
+        data = request.json
+        ovpn_content = data.get("ovpn_content", "")
+
+        if not ovpn_content:
+            return jsonify({"error": "请提供 .ovpn 文件内容", "success": False}), 400
+
+        if not os.path.exists(conf_file):
+            return jsonify({"error": f"站点 {site_name} 不存在", "success": False}), 404
+
+        try:
+            # 提取证书内容
+            import re
+
+            # 提取各个证书部分
+            ca_match = re.search(r"<ca>(.*?)</ca>", ovpn_content, re.DOTALL)
+            cert_match = re.search(r"<cert>(.*?)</cert>", ovpn_content, re.DOTALL)
+            key_match = re.search(r"<key>(.*?)</key>", ovpn_content, re.DOTALL)
+            tls_match = re.search(
+                r"<tls-auth>(.*?)</tls-auth>", ovpn_content, re.DOTALL
+            )
+
+            if not (ca_match and cert_match and key_match):
+                return (
+                    jsonify(
+                        {
+                            "error": "无法从 .ovpn 文件中提取证书，请确保包含 <ca>, <cert>, <key> 标签",
+                            "success": False,
+                        }
+                    ),
+                    400,
+                )
+
+            # 读取现有配置
+            with open(conf_file, "r") as f:
+                conf_content = f.read()
+
+            # 移除旧的证书内容（如果有）
+            conf_content = re.sub(r"<ca>.*?</ca>", "", conf_content, flags=re.DOTALL)
+            conf_content = re.sub(
+                r"<cert>.*?</cert>", "", conf_content, flags=re.DOTALL
+            )
+            conf_content = re.sub(r"<key>.*?</key>", "", conf_content, flags=re.DOTALL)
+            conf_content = re.sub(
+                r"<tls-auth>.*?</tls-auth>", "", conf_content, flags=re.DOTALL
+            )
+            conf_content = re.sub(r"key-direction \d+", "", conf_content)
+
+            # 添加新的证书内容
+            cert_block = "\n\n# 证书配置（自动添加）\n"
+            cert_block += f"<ca>\n{ca_match.group(1).strip()}\n</ca>\n\n"
+            cert_block += f"<cert>\n{cert_match.group(1).strip()}\n</cert>\n\n"
+            cert_block += f"<key>\n{key_match.group(1).strip()}\n</key>\n"
+
+            if tls_match:
+                cert_block += (
+                    f"\n<tls-auth>\n{tls_match.group(1).strip()}\n</tls-auth>\n"
+                )
+                cert_block += "key-direction 1\n"
+
+            # 写入配置文件
+            with open(conf_file, "w") as f:
+                f.write(conf_content.strip() + cert_block)
+
+            # 更新路由
+            run_command("ovpn_update_routes")
+
+            return jsonify(
+                {
+                    "message": f"站点 {site_name} 证书配置成功！请重启服务使配置生效。",
+                    "success": True,
+                }
+            )
+
+        except Exception as e:
+            return jsonify({"error": f"配置证书失败: {str(e)}", "success": False}), 500
 
 
 @app.route("/api/clients", methods=["GET", "POST", "DELETE"])
