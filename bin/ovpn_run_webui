@@ -8,6 +8,11 @@ if [ "$DEBUG" == "1" ]; then
   set -x
 fi
 
+# 确保必要的环境变量被设置
+export OPENVPN="${OPENVPN:-/etc/openvpn}"
+export EASYRSA="${EASYRSA:-/usr/share/easy-rsa}"
+export EASYRSA_PKI="${EASYRSA_PKI:-$OPENVPN/pki}"
+
 echo "=========================================="
 echo "  启动 OpenVPN Web 管理界面"
 echo "=========================================="
@@ -15,6 +20,8 @@ echo ""
 echo "Web 界面地址: http://0.0.0.0:8080"
 echo "默认用户名: ${WEBUI_USERNAME:-admin}"
 echo "默认密码: ${WEBUI_PASSWORD:-openvpn}"
+echo ""
+echo "配置目录: $OPENVPN"
 echo ""
 echo "⚠️ 强烈建议修改默认密码！"
 echo "   使用环境变量: WEBUI_USERNAME 和 WEBUI_PASSWORD"

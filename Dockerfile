@@ -6,8 +6,8 @@ FROM docker.m.daocloud.io/alpine:3.23.2
 MAINTAINER Kyle Manna <kyle@kylemanna.com>
 
 RUN sed -i 's/dl-cdn.alpinelinux.org/mirrors.ustc.edu.cn/g' /etc/apk/repositories && \
-    apk add --update openvpn iptables bash easy-rsa openvpn-auth-pam google-authenticator pamtester \
-    iproute2 curl libldap openldap-clients pam-ldap python3 py3-pip && \
+    apk add --update openvpn iptables bash easy-rsa openvpn-auth-pam google-authenticator \
+    iproute2 curl libldap openldap-clients python3 py3-pip expect openvpn-auth-ldap && \
     ln -s /usr/share/easy-rsa/easyrsa /usr/local/bin && \
     rm -rf /tmp/* /var/tmp/* /var/cache/apk/*
 
@@ -51,7 +51,7 @@ ADD ./docs /usr/share/doc/openvpn/docs
 
 # Add Web UI
 ADD ./webui /opt/openvpn-webui
-RUN pip3 install --no-cache-dir -r /opt/openvpn-webui/requirements.txt -i https://mirrors.aliyun.com/pypi/simple/ && \
+RUN pip3 install --break-system-packages --no-cache-dir -r /opt/openvpn-webui/requirements.txt -i https://mirrors.aliyun.com/pypi/simple/ && \
     chmod +x /opt/openvpn-webui/app.py
 
 # Expose Web UI port

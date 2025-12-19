@@ -11,16 +11,23 @@ services:
     cap_add:
       - NET_ADMIN
     volumes:
-      - openvpn-data:/etc/openvpn
+      - ./data:/etc/openvpn
     restart: unless-stopped
+    sysctls:
+      - net.ipv4.ip_forward=1
+      - net.ipv6.conf.all.forwarding=1
     environment:
       # 模式设置: 0=普通VPN, 1=网关模式
-      - GATEWAY_MODE=${GATEWAY_MODE:-0}
+      - GATEWAY_MODE=${GATEWAY_MODE:-1}
       # LDAP 设置: 0=禁用, 1=启用
       - LDAP_ENABLED=${LDAP_ENABLED:-0}
       # Web UI 认证
       - WEBUI_USERNAME=${WEBUI_USERNAME:-admin}
-      - WEBUI_PASSWORD=${WEBUI_PASSWORD:-openvpn}
+      - WEBUI_PASSWORD=${WEBUI_PASSWORD:-admin}
+      # CA 密码（可选，仅当使用密码保护的 CA 时需要）
+      # 默认配置：ovpn_initpki 创建无密码 CA，不需要设置此变量
+      # 如果使用 ovpn_initpki withpass，则需要设置 CA_PASSWORD
+      - CA_PASSWORD=${CA_PASSWORD:-}
       # 调试模式
       - DEBUG=${DEBUG:-0}
     networks:

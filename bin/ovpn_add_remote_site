@@ -93,6 +93,31 @@ SITE_INFO="$SITE_DIR/${SITE_NAME}.info"
 
 echo "正在创建站点配置: $SITE_NAME"
 
+# 将 CIDR 格式转换为 IP + 子网掩码格式
+cidr2mask() {
+    local i
+    local subnetmask=""
+    local cidr=${1#*/}
+    local full_octets=$(($cidr/8))
+    local partial_octet=$(($cidr%8))
+
+    for ((i=0;i<4;i+=1)); do
+        if [ $i -lt $full_octets ]; then
+            subnetmask+=255
+        elif [ $i -eq $full_octets ]; then
+            subnetmask+=$((256 - 2**(8-$partial_octet)))
+        else
+            subnetmask+=0
+        fi
+        [ $i -lt 3 ] && subnetmask+=.
+    done
+    echo $subnetmask
+}
+
+# 提取网段IP和掩码
+SUBNET_IP=${REMOTE_SUBNET%/*}
+SUBNET_MASK=$(cidr2mask $REMOTE_SUBNET)
+
 # 生成 OpenVPN 客户端配置（用于连接到远程站点）
 cat > "$SITE_CONF" <<EOF
 # Site-to-Site VPN 配置: $SITE_NAME
@@ -109,7 +134,7 @@ remote-cert-tls server
 verb 3
 
 # 路由配置 - 将远程网段路由到此 VPN 隧道
-route $REMOTE_SUBNET
+route $SUBNET_IP $SUBNET_MASK
 
 # 不使用默认网关
 route-nopull
@@ -137,12 +162,12 @@ fi
 
 # 保存站点信息（用于路由配置）
 cat > "$SITE_INFO" <<EOF
-SITE_NAME=$SITE_NAME
-REMOTE_HOST=$REMOTE_HOST
-REMOTE_PORT=$REMOTE_PORT
-REMOTE_SUBNET=$REMOTE_SUBNET
-PROTOCOL=$PROTOCOL
-CREATED_AT=$(date +%Y-%m-%d\ %H:%M:%S)
+SITE_NAME="$SITE_NAME"
+REMOTE_HOST="$REMOTE_HOST"
+REMOTE_PORT="$REMOTE_PORT"
+REMOTE_SUBNET="$REMOTE_SUBNET"
+PROTOCOL="$PROTOCOL"
+CREATED_AT="$(date '+%Y-%m-%d %H:%M:%S')"
 EOF
 
 echo ""

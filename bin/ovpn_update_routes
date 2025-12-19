@@ -21,37 +21,7 @@ if [ ! -d "$SITE_DIR" ]; then
     exit 0
 fi
 
-# 清空或创建路由配置文件
-> "$ROUTES_CONF"
-
-echo "# Site-to-Site VPN 路由配置" >> "$ROUTES_CONF"
-echo "# 自动生成于 $(date)" >> "$ROUTES_CONF"
-echo "" >> "$ROUTES_CONF"
-
-# 遍历所有站点配置
-site_count=0
-for info_file in "$SITE_DIR"/*.info; do
-    if [ -f "$info_file" ]; then
-        source "$info_file"
-        
-        echo "# 站点: $SITE_NAME" >> "$ROUTES_CONF"
-        echo "# 远程主机: $REMOTE_HOST" >> "$ROUTES_CONF"
-        echo "# 远程网段: $REMOTE_SUBNET" >> "$ROUTES_CONF"
-        
-        # 添加路由到主配置
-        # OpenVPN 会自动将这些路由推送给客户端
-        IFS='/' read -r subnet mask <<< "$REMOTE_SUBNET"
-        echo "route $subnet $(cidr2mask $REMOTE_SUBNET)" >> "$ROUTES_CONF"
-        
-        # 添加推送路由给客户端
-        echo "push \"route $subnet $(cidr2mask $REMOTE_SUBNET)\"" >> "$ROUTES_CONF"
-        echo "" >> "$ROUTES_CONF"
-        
-        site_count=$((site_count + 1))
-    fi
-done
-
-# CIDR 转子网掩码函数
+# CIDR 转子网掩码函数（需要先定义）
 cidr2mask() {
     local i
     local subnetmask=""
@@ -71,6 +41,39 @@ cidr2mask() {
     done
     echo $subnetmask
 }
+
+# 清空或创建路由配置文件
+> "$ROUTES_CONF"
+
+echo "# Site-to-Site VPN 路由配置" >> "$ROUTES_CONF"
+echo "# 自动生成于 $(date)" >> "$ROUTES_CONF"
+echo "" >> "$ROUTES_CONF"
+
+# 遍历所有站点配置
+site_count=0
+for info_file in "$SITE_DIR"/*.info; do
+    if [ -f "$info_file" ]; then
+        # 使用 source 加载变量
+        source "$info_file"
+        
+        echo "  处理站点: $SITE_NAME (网段: $REMOTE_SUBNET)"
+        
+        echo "# 站点: $SITE_NAME" >> "$ROUTES_CONF"
+        echo "# 远程主机: $REMOTE_HOST" >> "$ROUTES_CONF"
+        echo "# 远程网段: $REMOTE_SUBNET" >> "$ROUTES_CONF"
+        
+        # 提取 IP 和掩码
+        subnet_ip=${REMOTE_SUBNET%/*}
+        subnet_mask=$(cidr2mask $REMOTE_SUBNET)
+        
+        # 只推送路由给客户端（不在网关上添加路由）
+        # 网关的路由由 site 配置文件自己管理
+        echo "push \"route $subnet_ip $subnet_mask\"" >> "$ROUTES_CONF"
+        echo "" >> "$ROUTES_CONF"
+        
+        site_count=$((site_count + 1))
+    fi
+done
 
 echo "路由配置已更新: $ROUTES_CONF"
 echo "共找到 $site_count 个站点配置"

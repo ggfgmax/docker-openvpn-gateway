@@ -9,9 +9,36 @@ OpenVPN Web 管理界面
 import os
 import subprocess
 import json
+import logging
 from datetime import datetime
 from flask import Flask, render_template, request, jsonify, send_file
 from functools import wraps
+
+# 配置日志
+logging.basicConfig(
+    level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+)
+logger = logging.getLogger(__name__)
+
+
+# 创建日志过滤器，过滤掉 404 和不重要的访问日志
+class IgnoreHealthCheckFilter(logging.Filter):
+    def filter(self, record):
+        # 忽略 404 日志
+        if "404" in record.getMessage():
+            return False
+        # 忽略 /demo/* 路径的所有日志
+        if "/demo/" in record.getMessage():
+            return False
+        # 忽略健康检查路径
+        if "/health" in record.getMessage() or "/ping" in record.getMessage():
+            return False
+        return True
+
+
+# 应用过滤器到 werkzeug 日志
+werkzeug_logger = logging.getLogger("werkzeug")
+werkzeug_logger.addFilter(IgnoreHealthCheckFilter())
 
 app = Flask(__name__)
 app.config["SECRET_KEY"] = os.environ.get(
@@ -30,7 +57,10 @@ def require_auth(f):
         password = os.environ.get("WEBUI_PASSWORD", "openvpn")
 
         if not auth or auth.username != username or auth.password != password:
-            return jsonify({"error": "需要认证"}), 401
+            response = jsonify({"error": "需要认证"})
+            response.status_code = 401
+            response.headers["WWW-Authenticate"] = 'Basic realm="OpenVPN Web UI"'
+            return response
         return f(*args, **kwargs)
 
     return decorated
@@ -39,9 +69,16 @@ def require_auth(f):
 def run_command(cmd):
     """执行命令并返回结果"""
     try:
+        logger.info(f"执行命令: {cmd}")
         result = subprocess.run(
             cmd, shell=True, capture_output=True, text=True, timeout=30
         )
+        logger.info(f"命令返回码: {result.returncode}")
+        if result.stdout:
+            logger.info(f"命令输出: {result.stdout}")
+        if result.stderr:
+            logger.warning(f"命令错误: {result.stderr}")
+
         return {
             "success": result.returncode == 0,
             "stdout": result.stdout,
@@ -49,6 +86,7 @@ def run_command(cmd):
             "returncode": result.returncode,
         }
     except Exception as e:
+        logger.error(f"执行命令异常: {str(e)}")
         return {"success": False, "error": str(e)}
 
 
@@ -142,12 +180,25 @@ def manage_mode():
     data = request.json
     mode = data.get("mode", "normal")
 
+    logger.info(f"切换模式请求: {mode}")
+
     result = run_command(f"ovpn_set_mode {mode}")
     if result["success"]:
-        return jsonify({"message": f"已切换到{mode}模式", "success": True})
+        logger.info(f"模式切换成功: {mode}")
+        return jsonify(
+            {"message": f"已切换到{mode}模式，请重启服务使配置生效", "success": True}
+        )
     else:
+        error_msg = result.get("stderr") or result.get("error") or "切换失败"
+        logger.error(f"模式切换失败: {error_msg}")
         return (
-            jsonify({"error": result.get("stderr", "切换失败"), "success": False}),
+            jsonify(
+                {
+                    "error": error_msg,
+                    "stdout": result.get("stdout", ""),
+                    "success": False,
+                }
+            ),
             500,
         )
 
@@ -427,15 +478,99 @@ def manage_clients():
         if not client_name:
             return jsonify({"error": "客户端名称是必需的", "success": False}), 400
 
-        result = run_command(f"easyrsa build-client-full {client_name} nopass")
+        # 检查 vars 文件是否存在，不存在则创建
+        vars_file = f"{OPENVPN}/vars"
+        if not os.path.exists(vars_file):
+            logger.warning(f"vars 文件不存在，正在创建: {vars_file}")
+            try:
+                with open(vars_file, "w") as f:
+                    f.write(
+                        f"""# EasyRSA Variables
+# Minimal configuration for docker-openvpn-gateway
+
+set_var EASYRSA_PKI "{OPENVPN}/pki"
+"""
+                    )
+                logger.info(f"vars 文件已创建: {vars_file}")
+            except Exception as e:
+                logger.error(f"创建 vars 文件失败: {str(e)}")
+                return (
+                    jsonify({"error": f"创建配置文件失败: {str(e)}", "success": False}),
+                    500,
+                )
+
+        # 默认使用 nopass 方式生成客户端证书
+        # 如果 CA 有密码保护，会尝试使用 CA_PASSWORD 环境变量
+        ca_password = os.environ.get("CA_PASSWORD", "")
+
+        if ca_password:
+            # CA 有密码保护，使用 expect 自动输入密码和确认
+            logger.info(f"检测到 CA_PASSWORD，使用 expect 自动输入密码和确认")
+            cmd = f"""expect << 'EOF'
+set timeout 30
+spawn easyrsa build-client-full {client_name} nopass
+expect {{
+    "Enter pass phrase*" {{
+        send "{ca_password}\\r"
+        exp_continue
+    }}
+    "Confirm requested details:*" {{
+        send "yes\\r"
+        exp_continue
+    }}
+    eof
+}}
+EOF"""
+            result = run_command(cmd)
+        else:
+            # 尝试无密码方式（默认配置），使用 expect 自动确认
+            logger.info(f"使用无密码方式生成客户端证书（自动确认）")
+            cmd = f"""expect << 'EOF'
+set timeout 30
+spawn easyrsa build-client-full {client_name} nopass
+expect {{
+    "Confirm requested details:*" {{
+        send "yes\\r"
+        exp_continue
+    }}
+    eof
+}}
+EOF"""
+            result = run_command(cmd)
+
+            # 如果失败且提示需要密码，返回友好的错误信息
+            if (
+                not result["success"]
+                and "pass phrase" in result.get("stderr", "").lower()
+            ):
+                logger.warning(f"CA 证书有密码保护但未设置 CA_PASSWORD")
+                return (
+                    jsonify(
+                        {
+                            "error": "CA 证书有密码保护，但未设置 CA_PASSWORD 环境变量",
+                            "hint": "解决方案：\n1) 在 docker-compose.yml 中添加 CA_PASSWORD 环境变量\n2) 重新构建: docker-compose build\n3) 重启容器: docker restart openvpn-gateway\n\n或者重新初始化使用无密码CA（会删除现有证书）：\n1) docker exec -it openvpn-gateway ovpn_initpki nopass",
+                            "success": False,
+                        }
+                    ),
+                    500,
+                )
 
         if result["success"]:
+            logger.info(f"客户端 {client_name} 证书生成成功")
             return jsonify(
                 {"message": f"客户端 {client_name} 证书生成成功", "success": True}
             )
         else:
+            error_msg = result.get("stderr") or result.get("error") or "生成失败"
+            logger.error(f"客户端证书生成失败: {error_msg}")
             return (
-                jsonify({"error": result.get("stderr", "生成失败"), "success": False}),
+                jsonify(
+                    {
+                        "error": error_msg,
+                        "stdout": result.get("stdout", ""),
+                        "success": False,
+                    }
+                ),
                 500,
             )
 

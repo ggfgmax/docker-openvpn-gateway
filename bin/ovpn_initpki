@@ -12,29 +12,77 @@ set -e
 
 source "$OPENVPN/ovpn_env.sh"
 
-# Specify "nopass" as arg[2] to make the CA insecure (not recommended!)
-nopass=$1
+# 默认使用 nopass 创建 CA（简化 Web UI 使用）
+# 如果需要密码保护的 CA，请手动指定: ovpn_initpki withpass
+nopass=${1:-nopass}
+
+# Create vars file if it doesn't exist
+if [ ! -f "$EASYRSA_VARS_FILE" ]; then
+    echo "Creating EasyRSA vars file: $EASYRSA_VARS_FILE"
+    if [ -f "$EASYRSA/vars.example" ]; then
+        cp "$EASYRSA/vars.example" "$EASYRSA_VARS_FILE"
+    else
+        # Create a minimal vars file
+        cat > "$EASYRSA_VARS_FILE" <<EOF
+# EasyRSA Variables
+# Minimal configuration for docker-openvpn-gateway
+
+set_var EASYRSA_PKI "$EASYRSA_PKI"
+EOF
+    fi
+fi
 
 # Provides a sufficient warning before erasing pre-existing files
 easyrsa init-pki
 
-# CA always has a password for protection in event server is compromised. The
-# password is only needed to sign client/server certificates.  No password is
-# needed for normal OpenVPN operation.
-easyrsa build-ca $nopass
+echo "=========================================="
+echo "  初始化 PKI (证书系统)"
+echo "=========================================="
+echo ""
 
+if [ "$nopass" == "nopass" ]; then
+    echo "🔓 使用无密码模式创建 CA"
+    echo "   - 简化操作，Web UI 可直接生成客户端证书"
+    echo "   - 适合开发/测试环境"
+    echo "   - 生产环境建议使用密码保护: ovpn_initpki withpass"
+    echo ""
+    
+    # 创建无密码的 CA
+    easyrsa build-ca nopass
+else
+    echo "🔐 使用密码保护模式创建 CA"
+    echo "   - 更安全，适合生产环境"
+    echo "   - 需要在 docker-compose 中设置 CA_PASSWORD 环境变量"
+    echo "   - 或在容器内手动生成客户端证书"
+    echo ""
+    
+    # 创建有密码的 CA
+    easyrsa build-ca
+fi
+
+echo ""
+echo "生成 Diffie-Hellman 参数（可能需要几分钟）..."
 easyrsa gen-dh
+
+echo ""
+echo "生成 TLS 认证密钥..."
 openvpn --genkey --secret $OPENVPN/pki/ta.key
 
-# Was nice to autoset, but probably a bad idea in practice, users should
-# have to explicitly specify the common name of their server
-#if [ -z "$cn"]; then
-#    #TODO: Handle IPv6 (when I get a VPS with IPv6)...
-#    ip4=$(dig +short myip.opendns.com @resolver1.opendns.com)
-#    ptr=$(dig +short -x $ip4 | sed -e 's:\.$::')
-#
-#    [ -n "$ptr" ] && cn=$ptr || cn=$ip4
-#fi
-
-# For a server key with a password, manually init; this is autopilot
+# 生成服务器证书（始终使用 nopass）
+echo ""
+echo "生成服务器证书..."
 easyrsa build-server-full "$OVPN_CN" nopass
+
+echo ""
+echo "=========================================="
+echo "  PKI 初始化完成"
+echo "=========================================="
+echo ""
+if [ "$nopass" == "nopass" ]; then
+    echo "✅ CA 证书: 无密码保护"
+    echo "✅ 可以在 Web UI 中直接生成客户端证书"
+else
+    echo "✅ CA 证书: 密码保护"
+    echo "⚠️  需要设置 CA_PASSWORD 环境变量才能在 Web UI 中生成客户端证书"
+fi
+echo "=========================================="

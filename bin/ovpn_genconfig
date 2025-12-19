@@ -183,6 +183,10 @@ export OVPN_COMP_LZO
 export OVPN_OTP_AUTH
 export OVPN_FRAGMENT
 
+# 读取并保存运行模式设置（从环境变量或使用默认值）
+export OVPN_GATEWAY_MODE="${GATEWAY_MODE:-0}"
+export OVPN_LDAP_ENABLED="${LDAP_ENABLED:-0}"
+
 # Preserve config
 if [ -f "$OVPN_ENV" ]; then
     bak_env=$OVPN_ENV.$(date +%s).bak
@@ -231,7 +235,7 @@ EOF
 [ -n "$OVPN_FRAGMENT" ] && echo "fragment $OVPN_FRAGMENT" >> "$conf"
 
 [ "$OVPN_DNS" == "1" ] && for i in "${OVPN_DNS_SERVERS[@]}"; do
-  echo "push dhcp-option DNS $i" >> "$conf"
+  echo "push \"dhcp-option DNS $i\"" >> "$conf"
 done
 # Append Routes
 for i in "${OVPN_ROUTES[@]}"; do
@@ -245,12 +249,21 @@ for i in "${OVPN_PUSH[@]}"; do
     echo push \"$i\" >> "$conf"
 done
 
-# 包含 site-to-site 路由配置（如果存在）
+# 包含 site-to-site 路由配置
+# 总是包含此配置，即使文件还不存在（后续添加站点时会创建）
 site_routes="$OPENVPN/site-routes.conf"
-if [ -f "$site_routes" ]; then
-    echo "" >> "$conf"
-    echo "# Site-to-Site VPN 路由" >> "$conf"
-    echo "config $site_routes" >> "$conf"
+echo "" >> "$conf"
+echo "# Site-to-Site VPN 路由配置" >> "$conf"
+echo "# 此文件在添加站点后自动生成" >> "$conf"
+echo "config $site_routes" >> "$conf"
+
+# 如果文件不存在，创建一个空的（避免启动错误）
+if [ ! -f "$site_routes" ]; then
+    cat > "$site_routes" <<EOF
+# Site-to-Site VPN 路由配置
+# 自动生成于 $(date)
+# 添加站点后运行 ovpn_update_routes 更新此文件
+EOF
 fi
 
 # Optional OTP authentication support
@@ -272,3 +285,28 @@ if diff -q "$bak" "$conf" 2>/dev/null; then
 fi
 
 echo "Successfully generated config"
+echo ""
+echo "=========================================="
+echo "  配置摘要"
+echo "=========================================="
+echo "服务器地址: $OVPN_SERVER_URL"
+echo "VPN 网段: $OVPN_SERVER"
+echo "协议: $OVPN_PROTO"
+
+if [ "$OVPN_GATEWAY_MODE" == "1" ]; then
+    echo "运行模式: 网关模式 (GATEWAY_MODE=1)"
+    echo "  - 支持 Site-to-Site VPN"
+    echo "  - 客户端可访问所有配置的远程站点"
+else
+    echo "运行模式: 普通VPN模式 (GATEWAY_MODE=0)"
+    echo "  - 标准 VPN 服务器功能"
+fi
+
+if [ "$OVPN_LDAP_ENABLED" == "1" ]; then
+    echo "LDAP 认证: 已启用 (LDAP_ENABLED=1)"
+else
+    echo "LDAP 认证: 未启用 (LDAP_ENABLED=0)"
+fi
+echo "=========================================="
+echo ""
+echo "下一步: 运行 ovpn_initpki 初始化证书系统"
