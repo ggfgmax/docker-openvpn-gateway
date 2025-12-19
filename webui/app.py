@@ -106,8 +106,13 @@ def get_status():
     if os.path.exists(env_file):
         with open(env_file, "r") as f:
             content = f.read()
-            status["gateway_mode"] = "1" in content and "OVPN_GATEWAY_MODE=1" in content
-            status["ldap_enabled"] = "1" in content and "OVPN_LDAP_ENABLED=1" in content
+            # 更精确的匹配（检查 OVPN_GATEWAY_MODE="1" 或 =1）
+            import re
+
+            gateway_match = re.search(r'OVPN_GATEWAY_MODE[=\s]+"?1"?', content)
+            ldap_match = re.search(r'OVPN_LDAP_ENABLED[=\s]+"?1"?', content)
+            status["gateway_mode"] = bool(gateway_match)
+            status["ldap_enabled"] = bool(ldap_match)
     else:
         status["gateway_mode"] = False
         status["ldap_enabled"] = False
@@ -151,12 +156,57 @@ def get_status():
                 client_name = cert_file.replace(".crt", "")
                 cert_path = os.path.join(pki_dir, cert_file)
                 mtime = os.path.getmtime(cert_path)
+
+                # 获取证书过期时间
+                expiry_date = None
+                days_left = None
+                try:
+                    result = subprocess.run(
+                        f"openssl x509 -in {cert_path} -noout -enddate",
+                        shell=True,
+                        capture_output=True,
+                        text=True,
+                        timeout=5,
+                    )
+                    if result.returncode == 0:
+                        # 解析输出: notAfter=Dec 19 10:30:00 2026 GMT
+                        import re
+                        from datetime import datetime as dt
+
+                        match = re.search(r"notAfter=(.+)", result.stdout)
+                        if match:
+                            date_str = match.group(1).strip()
+                            try:
+                                # 解析日期：Dec 19 10:30:00 2026 GMT
+                                expiry_dt = dt.strptime(
+                                    date_str, "%b %d %H:%M:%S %Y %Z"
+                                )
+                                expiry_date = expiry_dt.strftime("%Y-%m-%d")
+                                days_left = (expiry_dt - dt.now()).days
+                            except ValueError:
+                                try:
+                                    # 尝试另一种格式
+                                    expiry_dt = dt.strptime(
+                                        date_str, "%b %d %H:%M:%S %Y GMT"
+                                    )
+                                    expiry_date = expiry_dt.strftime("%Y-%m-%d")
+                                    days_left = (expiry_dt - dt.now()).days
+                                except:
+                                    expiry_date = date_str
+                                    days_left = None
+                except Exception as e:
+                    logger.warning(f"获取证书 {client_name} 过期时间失败: {str(e)}")
+                    expiry_date = None
+                    days_left = None
+
                 status["clients"].append(
                     {
                         "name": client_name,
                         "created": datetime.fromtimestamp(mtime).strftime(
                             "%Y-%m-%d %H:%M:%S"
                         ),
+                        "expiry_date": expiry_date,
+                        "days_left": days_left,
                     }
                 )
 
@@ -281,14 +331,71 @@ def manage_sites():
                     conf_file = os.path.join(
                         sites_dir, f"{site_info.get('SITE_NAME', '')}.conf"
                     )
+                    site_info["has_cert"] = False
+                    site_info["expiry_date"] = None
+                    site_info["days_left"] = None
+
                     if os.path.exists(conf_file):
                         with open(conf_file, "r") as f:
                             content = f.read()
                             site_info["has_cert"] = (
                                 "<ca>" in content or "ca " in content
                             )
-                    else:
-                        site_info["has_cert"] = False
+
+                            # 获取证书过期时间（从 <cert> 标签中）
+                            if site_info["has_cert"]:
+                                try:
+                                    import re
+
+                                    cert_match = re.search(
+                                        r"<cert>(.*?)</cert>", content, re.DOTALL
+                                    )
+                                    if cert_match:
+                                        cert_content = cert_match.group(1).strip()
+                                        # 写入临时文件
+                                        import tempfile
+
+                                        with tempfile.NamedTemporaryFile(
+                                            mode="w", suffix=".crt", delete=False
+                                        ) as tmp:
+                                            tmp.write(cert_content)
+                                            tmp_path = tmp.name
+
+                                        # 获取过期时间
+                                        result = subprocess.run(
+                                            f"openssl x509 -in {tmp_path} -noout -enddate",
+                                            shell=True,
+                                            capture_output=True,
+                                            text=True,
+                                            timeout=5,
+                                        )
+                                        os.unlink(tmp_path)
+
+                                        if result.returncode == 0:
+                                            from datetime import datetime as dt
+
+                                            match = re.search(
+                                                r"notAfter=(.+)", result.stdout
+                                            )
+                                            if match:
+                                                date_str = match.group(1).strip()
+                                                try:
+                                                    expiry_dt = dt.strptime(
+                                                        date_str,
+                                                        "%b %d %H:%M:%S %Y GMT",
+                                                    )
+                                                    site_info["expiry_date"] = (
+                                                        expiry_dt.strftime("%Y-%m-%d")
+                                                    )
+                                                    site_info["days_left"] = (
+                                                        expiry_dt - dt.now()
+                                                    ).days
+                                                except:
+                                                    site_info["expiry_date"] = date_str
+                                except Exception as e:
+                                    logger.warning(
+                                        f"获取站点 {site_info.get('SITE_NAME', '')} 证书过期时间失败: {str(e)}"
+                                    )
 
                     sites.append(site_info)
         return jsonify(sites)
@@ -519,12 +626,46 @@ def manage_clients():
                     client_name = cert_file.replace(".crt", "")
                     cert_path = os.path.join(pki_dir, cert_file)
                     mtime = os.path.getmtime(cert_path)
+
+                    # 获取证书过期时间
+                    expiry_date = None
+                    days_left = None
+                    try:
+                        result = subprocess.run(
+                            f"openssl x509 -in {cert_path} -noout -enddate",
+                            shell=True,
+                            capture_output=True,
+                            text=True,
+                            timeout=5,
+                        )
+                        if result.returncode == 0:
+                            import re
+                            from datetime import datetime as dt
+
+                            match = re.search(r"notAfter=(.+)", result.stdout)
+                            if match:
+                                date_str = match.group(1).strip()
+                                try:
+                                    expiry_dt = dt.strptime(
+                                        date_str, "%b %d %H:%M:%S %Y GMT"
+                                    )
+                                    expiry_date = expiry_dt.strftime("%Y-%m-%d")
+                                    days_left = (expiry_dt - dt.now()).days
+                                except:
+                                    expiry_date = date_str
+                    except Exception as e:
+                        logger.warning(
+                            f"获取客户端 {client_name} 证书过期时间失败: {str(e)}"
+                        )
+
                     clients.append(
                         {
                             "name": client_name,
                             "created": datetime.fromtimestamp(mtime).strftime(
                                 "%Y-%m-%d %H:%M:%S"
                             ),
+                            "expiry_date": expiry_date,
+                            "days_left": days_left,
                         }
                     )
         return jsonify(clients)

@@ -641,7 +641,10 @@ remote vpn.example.com 1194
         }
 
         // 加载概览
-        function loadDashboard() {
+        async function loadDashboard() {
+            // 确保先加载最新状态
+            await loadStatus();
+
             const html = `
                 <div class="card">
                     <h3>系统状态</h3>
@@ -788,6 +791,8 @@ remote vpn.example.com 1194
                             <th>远程网段</th>
                             <th>协议</th>
                             <th>证书状态</th>
+                            <th>证书过期</th>
+                            <th>剩余天数</th>
                             <th>操作</th>
                         </tr>
                         ${sites.map(site => `
@@ -800,6 +805,16 @@ remote vpn.example.com 1194
                                 ${site.has_cert
                         ? '<span class="status-badge active">已配置</span>'
                         : '<span class="status-badge inactive">未配置</span>'}
+                            </td>
+                            <td>${site.expiry_date || '-'}</td>
+                            <td>
+                                ${site.days_left !== null && site.days_left !== undefined ?
+                        (site.days_left > 90 ?
+                            `<span style="color: #10b981;">${site.days_left} 天</span>` :
+                            site.days_left > 30 ?
+                                `<span style="color: #f59e0b;">${site.days_left} 天</span>` :
+                                `<span style="color: #ef4444; font-weight: bold;">${site.days_left} 天⚠️</span>`)
+                        : '-'}
                             </td>
                             <td>
                                 <button class="btn btn-primary" onclick="openCertModal('${site.SITE_NAME}')" style="font-size: 12px; padding: 5px 10px;">
@@ -1090,15 +1105,27 @@ remote vpn.example.com 1194
                         <tr>
                             <th>客户端名称</th>
                             <th>创建时间</th>
+                            <th>证书过期</th>
+                            <th>剩余天数</th>
                             <th>操作</th>
                         </tr>
                         ${clients.map(client => `
                         <tr>
                             <td>${client.name}</td>
                             <td>${client.created}</td>
+                            <td>${client.expiry_date || '-'}</td>
                             <td>
-                                <button class="btn btn-primary" onclick="downloadClient('${client.name}')">下载配置</button>
-                                <button class="btn btn-danger" onclick="revokeClient('${client.name}')">吊销</button>
+                                ${client.days_left !== null && client.days_left !== undefined ? 
+                                    (client.days_left > 90 ? 
+                                        `<span style="color: #10b981;">${client.days_left} 天</span>` : 
+                                     client.days_left > 30 ? 
+                                        `<span style="color: #f59e0b;">${client.days_left} 天</span>` : 
+                                        `<span style="color: #ef4444; font-weight: bold;">${client.days_left} 天⚠️</span>`) 
+                                    : '-'}
+                            </td>
+                            <td>
+                                <button class="btn btn-primary" onclick="downloadClient('${client.name}')" style="font-size: 12px; padding: 5px 10px;">下载</button>
+                                <button class="btn btn-danger" onclick="revokeClient('${client.name}')" style="font-size: 12px; padding: 5px 10px;">吊销</button>
                             </td>
                         </tr>
                         `).join('')}

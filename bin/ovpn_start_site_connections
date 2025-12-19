@@ -29,10 +29,19 @@ for conf_file in "$SITE_DIR"/*.conf; do
         site_name=$(basename "$conf_file" .conf)
         pid_file="$PID_DIR/${site_name}.pid"
         
-        # 检查是否已经运行
-        if [ -f "$pid_file" ] && kill -0 $(cat "$pid_file") 2>/dev/null; then
-            echo "站点 $site_name 已经在运行 (PID: $(cat "$pid_file"))"
-            continue
+        # 检查是否已经运行（改进的检查逻辑）
+        if [ -f "$pid_file" ]; then
+            old_pid=$(cat "$pid_file")
+            # 检查进程是否存在且是 openvpn 进程，且配置文件匹配
+            if kill -0 "$old_pid" 2>/dev/null && ps -p "$old_pid" -o args= | grep -q "$conf_file"; then
+                echo "站点 $site_name 已经在运行 (PID: $old_pid)"
+                site_count=$((site_count + 1))
+                continue
+            else
+                # PID 文件存在但进程不存在或不匹配，清理旧文件
+                echo "清理站点 $site_name 的旧 PID 文件 (PID: $old_pid 不存在或不匹配)"
+                rm -f "$pid_file"
+            fi
         fi
         
         echo "正在启动站点连接: $site_name"
