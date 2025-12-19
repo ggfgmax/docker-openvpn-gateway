@@ -1115,13 +1115,13 @@ remote vpn.example.com 1194
                             <td>${client.created}</td>
                             <td>${client.expiry_date || '-'}</td>
                             <td>
-                                ${client.days_left !== null && client.days_left !== undefined ? 
-                                    (client.days_left > 90 ? 
-                                        `<span style="color: #10b981;">${client.days_left} 天</span>` : 
-                                     client.days_left > 30 ? 
-                                        `<span style="color: #f59e0b;">${client.days_left} 天</span>` : 
-                                        `<span style="color: #ef4444; font-weight: bold;">${client.days_left} 天⚠️</span>`) 
-                                    : '-'}
+                                ${client.days_left !== null && client.days_left !== undefined ?
+                        (client.days_left > 90 ?
+                            `<span style="color: #10b981;">${client.days_left} 天</span>` :
+                            client.days_left > 30 ?
+                                `<span style="color: #f59e0b;">${client.days_left} 天</span>` :
+                                `<span style="color: #ef4444; font-weight: bold;">${client.days_left} 天⚠️</span>`)
+                        : '-'}
                             </td>
                             <td>
                                 <button class="btn btn-primary" onclick="downloadClient('${client.name}')" style="font-size: 12px; padding: 5px 10px;">下载</button>
