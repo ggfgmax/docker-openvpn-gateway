@@ -1,0 +1,49 @@
+#!/bin/bash
+
+#
+# 列出所有配置的站点及其状态
+#
+
+if [ "$DEBUG" == "1" ]; then
+  set -x
+fi
+
+set -e
+
+SITE_DIR="$OPENVPN/sites"
+PID_DIR="$OPENVPN/site-pids"
+
+echo "=========================================="
+echo "  Site-to-Site VPN 站点列表"
+echo "=========================================="
+echo ""
+
+# 检查 sites 目录是否存在
+if [ ! -d "$SITE_DIR" ]; then
+    echo "未找到站点配置"
+    exit 0
+fi
+
+# 遍历所有站点
+for info_file in "$SITE_DIR"/*.info; do
+    if [ -f "$info_file" ]; then
+        source "$info_file"
+        
+        pid_file="$PID_DIR/${SITE_NAME}.pid"
+        
+        # 检查状态
+        if [ -f "$pid_file" ] && kill -0 $(cat "$pid_file") 2>/dev/null; then
+            status="运行中 (PID: $(cat "$pid_file"))"
+        else
+            status="未运行"
+        fi
+        
+        echo "站点名称: $SITE_NAME"
+        echo "  远程主机: $REMOTE_HOST:$REMOTE_PORT ($PROTOCOL)"
+        echo "  远程网段: $REMOTE_SUBNET"
+        echo "  状态: $status"
+        echo "  创建时间: $CREATED_AT"
+        echo ""
+    fi
+done
+

@@ -1,0 +1,211 @@
+#!/bin/bash
+
+#
+# 配置 LDAP 认证
+#
+
+if [ "$DEBUG" == "1" ]; then
+  set -x
+fi
+
+set -e
+
+usage() {
+    echo "用法: $0 -h LDAP_HOST -b BASE_DN [-D BIND_DN] [-w BIND_PASSWORD] [-f FILTER] [-s SEARCH_ATTR]"
+    echo ""
+    echo "配置 OpenVPN 使用 LDAP 认证"
+    echo ""
+    echo "必需参数:"
+    echo "  -h LDAP_HOST        LDAP 服务器地址 (例如: ldap.example.com)"
+    echo "  -b BASE_DN          LDAP Base DN (例如: dc=example,dc=com)"
+    echo ""
+    echo "可选参数:"
+    echo "  -D BIND_DN          绑定 DN (例如: cn=admin,dc=example,dc=com)"
+    echo "  -w BIND_PASSWORD    绑定密码"
+    echo "  -f FILTER           用户过滤器 (默认: (&(objectClass=person)(uid=%u)))"
+    echo "  -s SEARCH_ATTR      搜索属性 (默认: uid)"
+    echo "  -p PORT             LDAP 端口 (默认: 389)"
+    echo "  -S                  使用 LDAPS (默认端口 636)"
+    echo "  -t TIMEOUT          超时时间秒 (默认: 15)"
+    echo ""
+    echo "示例:"
+    echo "  $0 -h ldap.company.com -b dc=company,dc=com -D cn=admin,dc=company,dc=com -w password"
+}
+
+# 默认值
+LDAP_PORT=389
+LDAP_FILTER="(&(objectClass=person)(uid=%u))"
+LDAP_SEARCH_ATTR="uid"
+LDAP_TIMEOUT=15
+LDAP_TLS=""
+
+while getopts ":h:b:D:w:f:s:p:St:" opt; do
+    case $opt in
+        h)
+            LDAP_HOST="$OPTARG"
+            ;;
+        b)
+            LDAP_BASE_DN="$OPTARG"
+            ;;
+        D)
+            LDAP_BIND_DN="$OPTARG"
+            ;;
+        w)
+            LDAP_BIND_PASSWORD="$OPTARG"
+            ;;
+        f)
+            LDAP_FILTER="$OPTARG"
+            ;;
+        s)
+            LDAP_SEARCH_ATTR="$OPTARG"
+            ;;
+        p)
+            LDAP_PORT="$OPTARG"
+            ;;
+        S)
+            LDAP_TLS="1"
+            LDAP_PORT=636
+            ;;
+        t)
+            LDAP_TIMEOUT="$OPTARG"
+            ;;
+        \?)
+            echo "无效的选项: -$OPTARG" >&2
+            usage
+            exit 1
+            ;;
+        :)
+            echo "选项 -$OPTARG 需要参数" >&2
+            usage
+            exit 1
+            ;;
+    esac
+done
+
+# 检查必需参数
+if [ -z "$LDAP_HOST" ] || [ -z "$LDAP_BASE_DN" ]; then
+    echo "错误: 缺少必需参数" >&2
+    usage
+    exit 1
+fi
+
+echo "=========================================="
+echo "  配置 LDAP 认证"
+echo "=========================================="
+echo ""
+echo "LDAP 服务器: $LDAP_HOST:$LDAP_PORT"
+echo "Base DN: $LDAP_BASE_DN"
+echo "过滤器: $LDAP_FILTER"
+echo ""
+
+# 创建 LDAP 配置文件
+LDAP_CONF="$OPENVPN/ldap.conf"
+
+cat > "$LDAP_CONF" <<EOF
+# OpenVPN LDAP 配置
+# 自动生成于 $(date)
+
+# LDAP 服务器配置
+URI ldap$([ -n "$LDAP_TLS" ] && echo "s")://$LDAP_HOST:$LDAP_PORT
+BASE $LDAP_BASE_DN
+BINDDN ${LDAP_BIND_DN:-}
+BINDPW ${LDAP_BIND_PASSWORD:-}
+
+# 超时设置
+TIMEOUT $LDAP_TIMEOUT
+
+# TLS 配置
+$([ -n "$LDAP_TLS" ] && echo "TLS_REQCERT allow")
+
+# 搜索配置
+SCOPE sub
+FILTER $LDAP_FILTER
+EOF
+
+echo "✓ LDAP 配置已创建: $LDAP_CONF"
+
+# 创建 PAM 配置用于 LDAP
+PAM_LDAP_CONF="/etc/pam_ldap.conf"
+
+cat > "$PAM_LDAP_CONF" <<EOF
+# PAM LDAP 配置
+# 自动生成于 $(date)
+
+base $LDAP_BASE_DN
+uri ldap$([ -n "$LDAP_TLS" ] && echo "s")://$LDAP_HOST:$LDAP_PORT
+$([ -n "$LDAP_BIND_DN" ] && echo "binddn $LDAP_BIND_DN")
+$([ -n "$LDAP_BIND_PASSWORD" ] && echo "bindpw $LDAP_BIND_PASSWORD")
+pam_filter $LDAP_FILTER
+pam_login_attribute $LDAP_SEARCH_ATTR
+pam_password crypt
+$([ -n "$LDAP_TLS" ] && echo "ssl start_tls")
+$([ -n "$LDAP_TLS" ] && echo "tls_checkpeer no")
+EOF
+
+echo "✓ PAM LDAP 配置已创建: $PAM_LDAP_CONF"
+
+# 创建或更新 PAM OpenVPN 配置
+PAM_OPENVPN_CONF="/etc/pam.d/openvpn"
+
+cat > "$PAM_OPENVPN_CONF" <<EOF
+# OpenVPN PAM 配置（使用 LDAP）
+# 自动生成于 $(date)
+
+auth required pam_ldap.so
+account required pam_ldap.so
+EOF
+
+echo "✓ PAM OpenVPN 配置已更新: $PAM_OPENVPN_CONF"
+
+# 保存 LDAP 配置到环境变量文件
+OVPN_ENV="$OPENVPN/ovpn_env.sh"
+
+if [ -f "$OVPN_ENV" ]; then
+    # 移除旧的 LDAP 配置
+    sed -i '/OVPN_LDAP/d' "$OVPN_ENV"
+fi
+
+cat >> "$OVPN_ENV" <<EOF
+
+# LDAP 配置
+export OVPN_LDAP_ENABLED=1
+export OVPN_LDAP_HOST="$LDAP_HOST"
+export OVPN_LDAP_PORT="$LDAP_PORT"
+export OVPN_LDAP_BASE_DN="$LDAP_BASE_DN"
+export OVPN_LDAP_FILTER="$LDAP_FILTER"
+export OVPN_LDAP_TLS="$LDAP_TLS"
+EOF
+
+echo "✓ LDAP 配置已保存到: $OVPN_ENV"
+
+# 测试 LDAP 连接
+echo ""
+echo "测试 LDAP 连接..."
+if ldapsearch -x -H "ldap$([ -n "$LDAP_TLS" ] && echo "s")://$LDAP_HOST:$LDAP_PORT" \
+    -b "$LDAP_BASE_DN" \
+    $([ -n "$LDAP_BIND_DN" ] && echo "-D $LDAP_BIND_DN") \
+    $([ -n "$LDAP_BIND_PASSWORD" ] && echo "-w $LDAP_BIND_PASSWORD") \
+    -LLL "(objectClass=*)" dn 2>/dev/null | head -5; then
+    echo ""
+    echo "✓ LDAP 连接测试成功！"
+else
+    echo ""
+    echo "⚠ LDAP 连接测试失败，请检查配置"
+    echo "  提示: 确保 LDAP 服务器可访问，并且凭据正确"
+fi
+
+echo ""
+echo "=========================================="
+echo "LDAP 配置完成！"
+echo ""
+echo "下一步:"
+echo "1. 重新生成 OpenVPN 配置以启用 LDAP 认证:"
+echo "   ovpn_genconfig -u udp://YOUR_SERVER_URL -2"
+echo ""
+echo "2. 或手动编辑 openvpn.conf 添加以下内容:"
+echo "   plugin /usr/lib/openvpn/plugins/openvpn-plugin-auth-pam.so openvpn"
+echo "   username-as-common-name"
+echo ""
+echo "3. 重启 OpenVPN 服务"
+echo "=========================================="
+

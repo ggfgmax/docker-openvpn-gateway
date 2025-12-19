@@ -1,0 +1,131 @@
+#!/bin/bash
+
+#
+# Run the OpenVPN server normally
+#
+
+if [ "$DEBUG" == "1" ]; then
+  set -x
+fi
+
+set -e
+
+# Build runtime arguments array based on environment
+ARGS=("--config" "$OPENVPN/openvpn.conf")
+
+source "$OPENVPN/ovpn_env.sh"
+
+# 设置运行模式
+GATEWAY_MODE="${OVPN_GATEWAY_MODE:-0}"
+LDAP_ENABLED="${OVPN_LDAP_ENABLED:-0}"
+
+echo "=========================================="
+echo "  OpenVPN 启动配置"
+echo "=========================================="
+if [ "$GATEWAY_MODE" == "1" ]; then
+    echo "运行模式: 多云网络主入口网关模式"
+else
+    echo "运行模式: 普通 VPN 模式"
+fi
+
+if [ "$LDAP_ENABLED" == "1" ]; then
+    echo "LDAP 认证: 已启用"
+else
+    echo "LDAP 认证: 未启用"
+fi
+echo "=========================================="
+echo ""
+
+mkdir -p /dev/net
+if [ ! -c /dev/net/tun ]; then
+    mknod /dev/net/tun c 10 200
+fi
+
+if [ -d "$OPENVPN/ccd" ]; then
+    ARGS+=("--client-config-dir" "$OPENVPN/ccd")
+fi
+
+# When using --net=host, use this to specify nat device.
+[ -z "$OVPN_NATDEVICE" ] && OVPN_NATDEVICE=eth0
+
+# Setup NAT forwarding if requested
+if [ "$OVPN_DEFROUTE" != "0" ] || [ "$OVPN_NAT" == "1" ] ; then
+    iptables -t nat -C POSTROUTING -s $OVPN_SERVER -o $OVPN_NATDEVICE -j MASQUERADE || {
+      iptables -t nat -A POSTROUTING -s $OVPN_SERVER -o $OVPN_NATDEVICE -j MASQUERADE
+    }
+    for i in "${OVPN_ROUTES[@]}"; do
+        iptables -t nat -C POSTROUTING -s "$i" -o $OVPN_NATDEVICE -j MASQUERADE || {
+          iptables -t nat -A POSTROUTING -s "$i" -o $OVPN_NATDEVICE -j MASQUERADE
+        }
+    done
+fi
+
+# 仅在网关模式下启用 Site-to-Site VPN 功能
+if [ "$GATEWAY_MODE" == "1" ]; then
+    echo "网关模式: 启用 Site-to-Site VPN 功能..."
+    
+    # 启用 IP 转发（用于 Site-to-Site VPN）
+    echo "  启用 IP 转发..."
+    sysctl -w net.ipv4.ip_forward=1 || echo "  警告: 无法启用 IPv4 转发"
+
+    # 配置 iptables 转发规则（允许不同 VPN 隧道之间的流量转发）
+    echo "  配置 iptables 转发规则..."
+    iptables -C FORWARD -i tun+ -o tun+ -j ACCEPT 2>/dev/null || {
+        iptables -I FORWARD -i tun+ -o tun+ -j ACCEPT
+    }
+    iptables -C FORWARD -i $OVPN_DEVICE+ -j ACCEPT 2>/dev/null || {
+        iptables -I FORWARD -i $OVPN_DEVICE+ -j ACCEPT
+    }
+
+    # 为 Site-to-Site 隧道配置 NAT
+    SITE_DIR="$OPENVPN/sites"
+    if [ -d "$SITE_DIR" ]; then
+        echo "  为 Site-to-Site VPN 配置 NAT 规则..."
+        for info_file in "$SITE_DIR"/*.info; do
+            if [ -f "$info_file" ]; then
+                source "$info_file"
+                # 为每个远程站点的网段配置 MASQUERADE
+                iptables -t nat -C POSTROUTING -d $REMOTE_SUBNET -j MASQUERADE 2>/dev/null || {
+                    iptables -t nat -A POSTROUTING -d $REMOTE_SUBNET -j MASQUERADE
+                }
+                echo "    已添加 NAT 规则: $REMOTE_SUBNET (站点: $SITE_NAME)"
+            fi
+        done
+    fi
+
+    # 启动 Site-to-Site VPN 连接
+    if [ -x /usr/local/bin/ovpn_start_site_connections ]; then
+        echo "  启动 Site-to-Site VPN 连接..."
+        /usr/local/bin/ovpn_start_site_connections &
+    fi
+    
+    echo "  ✓ Site-to-Site VPN 功能已启用"
+else
+    echo "普通 VPN 模式: Site-to-Site VPN 功能未启用"
+fi
+
+# Use a hacky hardlink as the CRL Needs to be readable by the user/group
+# OpenVPN is running as.  Only pass arguments to OpenVPN if it's found.
+if [ -r "$EASYRSA_PKI/crl.pem" ]; then
+    if [ ! -r "$OPENVPN/crl.pem" ]; then
+        ln "$EASYRSA_PKI/crl.pem" "$OPENVPN/crl.pem"
+        chmod 644 "$OPENVPN/crl.pem"
+    fi
+    ARGS+=("--crl-verify" "$OPENVPN/crl.pem")
+fi
+
+ip -6 route show default 2>/dev/null
+if [ $? = 0 ]; then
+    echo "Enabling IPv6 Forwarding"
+    # If this fails, ensure the docker container is run with --privileged
+    # Could be side stepped with `ip netns` madness to drop privileged flag
+
+    sysctl -w net.ipv6.conf.default.forwarding=1 || echo "Failed to enable IPv6 Forwarding default"
+    sysctl -w net.ipv6.conf.all.forwarding=1 || echo "Failed to enable IPv6 Forwarding"
+fi
+
+if [ "$#" -gt 0 ]; then
+    exec openvpn "$@"
+else
+    exec openvpn ${ARGS[@]}
+fi

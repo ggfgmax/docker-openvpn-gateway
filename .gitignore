@@ -1,0 +1,164 @@
+# OpenVPN 数据和配置
+*.ovpn
+pki/
+*.key
+*.crt
+*.pem
+*.p12
+*.pfx
+dh*.pem
+ta.key
+crl.pem
+ovpn_env.sh
+openvpn.conf
+openvpn.conf.*.bak
+ovpn_env.sh.*.bak
+
+# 站点配置（可能包含敏感信息）
+sites/
+site-pids/
+site-routes.conf
+
+# 客户端配置
+clients/
+ccd/
+
+# 日志文件
+*.log
+/var/log/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+ENV/
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Flask
+instance/
+.webassets-cache
+.pytest_cache/
+
+# 环境变量文件（包含密码）
+.env
+.env.local
+*.env
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+.DocumentRevisions-V100
+.fseventsd
+.Spotlight-V100
+.TemporaryItems
+.Trashes
+.VolumeIcon.icns
+.com.apple.timemachine.donotpresent
+.AppleDB
+.AppleDesktop
+Network Trash Folder
+Temporary Items
+.apdisk
+
+# Linux
+*~
+.fuse_hidden*
+.directory
+.Trash-*
+.nfs*
+
+# Windows
+Thumbs.db
+Thumbs.db:encryptable
+ehthumbs.db
+ehthumbs_vista.db
+*.stackdump
+[Dd]esktop.ini
+$RECYCLE.BIN/
+*.cab
+*.msi
+*.msix
+*.msm
+*.msp
+*.lnk
+
+# Docker
+docker-compose.override.yml
+.dockerignore
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*.swn
+.project
+.classpath
+.c9/
+*.launch
+.settings/
+*.sublime-workspace
+*.sublime-project
+
+# 临时文件
+*.tmp
+*.temp
+*.bak
+*.backup
+*~
+.cache/
+
+# 测试和覆盖率
+.coverage
+.coverage.*
+htmlcov/
+.tox/
+.nox/
+.hypothesis/
+.pytest_cache/
+nosetests.xml
+coverage.xml
+*.cover
+.cache
+
+# 备份文件
+backup/
+backups/
+*.tar.gz
+*.zip
+*.tar
+*.gz
+
+# Node.js (如果将来添加前端构建)
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+package-lock.json
+yarn.lock
+
+# 其他
+.git-credentials
+secrets/
+private/

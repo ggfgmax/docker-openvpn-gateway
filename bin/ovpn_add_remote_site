@@ -1,0 +1,156 @@
+#!/bin/bash
+
+#
+# 添加 Site-to-Site VPN 连接配置
+# 用于连接其他云服务商的 OpenVPN 服务器
+#
+
+if [ "$DEBUG" == "1" ]; then
+  set -x
+fi
+
+set -e
+
+usage() {
+    echo "用法: $0 -n SITE_NAME -h REMOTE_HOST -p REMOTE_PORT -s REMOTE_SUBNET [-k CLIENT_KEY] [-c CLIENT_CERT] [-a CA_CERT]"
+    echo ""
+    echo "参数说明:"
+    echo "  -n SITE_NAME        站点名称 (例如: huawei, aws, gcp)"
+    echo "  -h REMOTE_HOST      远程 VPN 服务器地址"
+    echo "  -p REMOTE_PORT      远程 VPN 服务器端口 (默认: 1194)"
+    echo "  -s REMOTE_SUBNET    远程内网网段 (例如: 10.0.0.0/16)"
+    echo "  -P PROTOCOL         协议 (udp 或 tcp, 默认: udp)"
+    echo "  -k CLIENT_KEY       客户端密钥文件路径 (可选)"
+    echo "  -c CLIENT_CERT      客户端证书文件路径 (可选)"
+    echo "  -a CA_CERT          CA 证书文件路径 (可选)"
+    echo ""
+    echo "示例:"
+    echo "  $0 -n huawei -h vpn.huawei.example.com -p 1194 -s 172.16.0.0/16"
+}
+
+SITE_NAME=""
+REMOTE_HOST=""
+REMOTE_PORT="1194"
+REMOTE_SUBNET=""
+PROTOCOL="udp"
+CLIENT_KEY=""
+CLIENT_CERT=""
+CA_CERT=""
+
+while getopts ":n:h:p:s:P:k:c:a:" opt; do
+    case $opt in
+        n)
+            SITE_NAME="$OPTARG"
+            ;;
+        h)
+            REMOTE_HOST="$OPTARG"
+            ;;
+        p)
+            REMOTE_PORT="$OPTARG"
+            ;;
+        s)
+            REMOTE_SUBNET="$OPTARG"
+            ;;
+        P)
+            PROTOCOL="$OPTARG"
+            ;;
+        k)
+            CLIENT_KEY="$OPTARG"
+            ;;
+        c)
+            CLIENT_CERT="$OPTARG"
+            ;;
+        a)
+            CA_CERT="$OPTARG"
+            ;;
+        \?)
+            echo "无效的选项: -$OPTARG" >&2
+            usage
+            exit 1
+            ;;
+        :)
+            echo "选项 -$OPTARG 需要参数" >&2
+            usage
+            exit 1
+            ;;
+    esac
+done
+
+# 检查必需参数
+if [ -z "$SITE_NAME" ] || [ -z "$REMOTE_HOST" ] || [ -z "$REMOTE_SUBNET" ]; then
+    echo "错误: 缺少必需参数" >&2
+    usage
+    exit 1
+fi
+
+# 创建 site-to-site 配置目录
+SITE_DIR="$OPENVPN/sites"
+mkdir -p "$SITE_DIR"
+
+# 创建站点配置文件
+SITE_CONF="$SITE_DIR/${SITE_NAME}.conf"
+SITE_INFO="$SITE_DIR/${SITE_NAME}.info"
+
+echo "正在创建站点配置: $SITE_NAME"
+
+# 生成 OpenVPN 客户端配置（用于连接到远程站点）
+cat > "$SITE_CONF" <<EOF
+# Site-to-Site VPN 配置: $SITE_NAME
+client
+dev tun-${SITE_NAME}
+dev-type tun
+proto $PROTOCOL
+remote $REMOTE_HOST $REMOTE_PORT
+resolv-retry infinite
+nobind
+persist-key
+persist-tun
+remote-cert-tls server
+verb 3
+
+# 路由配置 - 将远程网段路由到此 VPN 隧道
+route $REMOTE_SUBNET
+
+# 不使用默认网关
+route-nopull
+
+# 日志文件
+log /var/log/openvpn-${SITE_NAME}.log
+status /var/log/openvpn-${SITE_NAME}-status.log
+EOF
+
+# 如果提供了证书和密钥，添加到配置中
+if [ -n "$CLIENT_KEY" ] && [ -f "$CLIENT_KEY" ]; then
+    cp "$CLIENT_KEY" "$SITE_DIR/${SITE_NAME}.key"
+    echo "key $SITE_DIR/${SITE_NAME}.key" >> "$SITE_CONF"
+fi
+
+if [ -n "$CLIENT_CERT" ] && [ -f "$CLIENT_CERT" ]; then
+    cp "$CLIENT_CERT" "$SITE_DIR/${SITE_NAME}.crt"
+    echo "cert $SITE_DIR/${SITE_NAME}.crt" >> "$SITE_CONF"
+fi
+
+if [ -n "$CA_CERT" ] && [ -f "$CA_CERT" ]; then
+    cp "$CA_CERT" "$SITE_DIR/${SITE_NAME}-ca.crt"
+    echo "ca $SITE_DIR/${SITE_NAME}-ca.crt" >> "$SITE_CONF"
+fi
+
+# 保存站点信息（用于路由配置）
+cat > "$SITE_INFO" <<EOF
+SITE_NAME=$SITE_NAME
+REMOTE_HOST=$REMOTE_HOST
+REMOTE_PORT=$REMOTE_PORT
+REMOTE_SUBNET=$REMOTE_SUBNET
+PROTOCOL=$PROTOCOL
+CREATED_AT=$(date +%Y-%m-%d\ %H:%M:%S)
+EOF
+
+echo ""
+echo "站点配置已创建: $SITE_CONF"
+echo "站点信息已保存: $SITE_INFO"
+echo ""
+echo "下一步:"
+echo "1. 如果还没有添加证书和密钥，请手动添加到配置文件"
+echo "2. 运行 'ovpn_update_routes' 更新路由配置"
+echo "3. 重启 OpenVPN 服务使配置生效"
+

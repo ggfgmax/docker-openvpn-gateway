@@ -1,0 +1,57 @@
+#!/bin/bash
+
+#
+# 启动所有 Site-to-Site VPN 连接
+#
+
+if [ "$DEBUG" == "1" ]; then
+  set -x
+fi
+
+set -e
+
+SITE_DIR="$OPENVPN/sites"
+PID_DIR="$OPENVPN/site-pids"
+
+mkdir -p "$PID_DIR"
+
+echo "正在启动 Site-to-Site VPN 连接..."
+
+# 检查 sites 目录是否存在
+if [ ! -d "$SITE_DIR" ]; then
+    echo "警告: 未找到站点配置目录 $SITE_DIR"
+    exit 0
+fi
+
+site_count=0
+for conf_file in "$SITE_DIR"/*.conf; do
+    if [ -f "$conf_file" ]; then
+        site_name=$(basename "$conf_file" .conf)
+        pid_file="$PID_DIR/${site_name}.pid"
+        
+        # 检查是否已经运行
+        if [ -f "$pid_file" ] && kill -0 $(cat "$pid_file") 2>/dev/null; then
+            echo "站点 $site_name 已经在运行 (PID: $(cat "$pid_file"))"
+            continue
+        fi
+        
+        echo "正在启动站点连接: $site_name"
+        
+        # 启动 OpenVPN 客户端连接
+        openvpn --config "$conf_file" --daemon --writepid "$pid_file"
+        
+        site_count=$((site_count + 1))
+        
+        # 等待一下让连接建立
+        sleep 2
+    fi
+done
+
+echo ""
+echo "已启动 $site_count 个站点连接"
+
+# 显示所有隧道状态
+echo ""
+echo "当前隧道接口:"
+ip link show | grep "tun-" || echo "未找到隧道接口"
+

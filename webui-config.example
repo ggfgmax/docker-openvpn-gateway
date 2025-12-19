@@ -1,0 +1,12 @@
+# Web UI 配置示例
+# 用于启动带有 Web 管理界面的 OpenVPN
+
+# Web UI 认证
+WEBUI_USERNAME=admin
+WEBUI_PASSWORD=your-secure-password
+
+# VPN 配置
+SERVER_URL=udp://vpn.yourdomain.com
+GATEWAY_MODE=0
+LDAP_ENABLED=0
+

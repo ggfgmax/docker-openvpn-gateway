@@ -1,0 +1,43 @@
+#!/bin/bash
+
+#
+# 停止所有 Site-to-Site VPN 连接
+#
+
+if [ "$DEBUG" == "1" ]; then
+  set -x
+fi
+
+set -e
+
+PID_DIR="$OPENVPN/site-pids"
+
+echo "正在停止 Site-to-Site VPN 连接..."
+
+# 检查 PID 目录是否存在
+if [ ! -d "$PID_DIR" ]; then
+    echo "未找到活动的站点连接"
+    exit 0
+fi
+
+site_count=0
+for pid_file in "$PID_DIR"/*.pid; do
+    if [ -f "$pid_file" ]; then
+        site_name=$(basename "$pid_file" .pid)
+        pid=$(cat "$pid_file")
+        
+        if kill -0 "$pid" 2>/dev/null; then
+            echo "正在停止站点连接: $site_name (PID: $pid)"
+            kill "$pid"
+            rm -f "$pid_file"
+            site_count=$((site_count + 1))
+        else
+            echo "站点 $site_name 未运行，清理 PID 文件"
+            rm -f "$pid_file"
+        fi
+    fi
+done
+
+echo ""
+echo "已停止 $site_count 个站点连接"
+

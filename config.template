@@ -1,0 +1,72 @@
+# 多云网络主入口 VPN 网关配置模板
+# 此文件用作配置参考
+
+# ==========================================
+# 服务器配置
+# ==========================================
+SERVER_URL=udp://vpn.example.com
+SERVER_PORT=1194
+
+# ==========================================
+# 华为云配置
+# ==========================================
+HUAWEI_HOST=vpn.huaweicloud.example.com
+HUAWEI_PORT=1194
+HUAWEI_SUBNET=172.16.0.0/16
+HUAWEI_PROTOCOL=udp
+
+# ==========================================
+# AWS 配置
+# ==========================================
+AWS_HOST=vpn.aws.example.com
+AWS_PORT=1194
+AWS_SUBNET=10.0.0.0/16
+AWS_PROTOCOL=udp
+
+# ==========================================
+# GCP 配置
+# ==========================================
+GCP_HOST=vpn.gcp.example.com
+GCP_PORT=1194
+GCP_SUBNET=192.168.0.0/16
+GCP_PROTOCOL=udp
+
+# ==========================================
+# 其他云平台配置示例
+# ==========================================
+# Azure
+# AZURE_HOST=vpn.azure.example.com
+# AZURE_PORT=1194
+# AZURE_SUBNET=172.17.0.0/16
+# AZURE_PROTOCOL=udp
+
+# 阿里云
+# ALIYUN_HOST=vpn.aliyun.example.com
+# ALIYUN_PORT=1194
+# ALIYUN_SUBNET=172.18.0.0/16
+# ALIYUN_PROTOCOL=udp
+
+# ==========================================
+# 模式配置
+# ==========================================
+# VPN 运行模式（0=普通VPN, 1=网关模式）
+GATEWAY_MODE=0
+
+# LDAP 认证（0=禁用, 1=启用）
+LDAP_ENABLED=0
+
+# ==========================================
+# LDAP 配置（仅当 LDAP_ENABLED=1 时需要）
+# ==========================================
+LDAP_HOST=ldap.example.com
+LDAP_PORT=389
+LDAP_BASE_DN=dc=example,dc=com
+LDAP_BIND_DN=cn=admin,dc=example,dc=com
+LDAP_BIND_PASSWORD=password
+
+# ==========================================
+# 调试配置
+# ==========================================
+# 启用调试模式（1 启用，0 禁用）
+DEBUG=0
+

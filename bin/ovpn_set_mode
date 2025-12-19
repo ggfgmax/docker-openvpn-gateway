@@ -1,0 +1,132 @@
+#!/bin/bash
+
+#
+# 设置 VPN 运行模式
+# 支持普通 VPN 模式和网关模式
+#
+
+if [ "$DEBUG" == "1" ]; then
+  set -x
+fi
+
+set -e
+
+usage() {
+    echo "用法: $0 [normal|gateway]"
+    echo ""
+    echo "设置 OpenVPN 运行模式"
+    echo ""
+    echo "模式:"
+    echo "  normal    - 普通 VPN 模式（默认）"
+    echo "  gateway   - 多云网络主入口网关模式"
+    echo ""
+    echo "示例:"
+    echo "  $0 normal    # 切换到普通 VPN 模式"
+    echo "  $0 gateway   # 切换到网关模式"
+    echo ""
+    echo "不带参数运行将显示当前模式"
+}
+
+show_current_mode() {
+    OVPN_ENV="$OPENVPN/ovpn_env.sh"
+    
+    if [ -f "$OVPN_ENV" ]; then
+        source "$OVPN_ENV"
+        
+        if [ "${OVPN_GATEWAY_MODE:-0}" == "1" ]; then
+            echo "当前模式: 网关模式 (Gateway Mode)"
+        else
+            echo "当前模式: 普通 VPN 模式 (Normal VPN Mode)"
+        fi
+        
+        if [ "${OVPN_LDAP_ENABLED:-0}" == "1" ]; then
+            echo "LDAP 认证: 已启用"
+        else
+            echo "LDAP 认证: 未启用"
+        fi
+    else
+        echo "错误: 未找到配置文件 $OVPN_ENV"
+        echo "请先运行 ovpn_genconfig 生成配置"
+        exit 1
+    fi
+}
+
+set_mode() {
+    MODE="$1"
+    OVPN_ENV="$OPENVPN/ovpn_env.sh"
+    
+    if [ ! -f "$OVPN_ENV" ]; then
+        echo "错误: 未找到配置文件 $OVPN_ENV"
+        echo "请先运行 ovpn_genconfig 生成配置"
+        exit 1
+    fi
+    
+    # 移除旧的模式配置
+    sed -i '/OVPN_GATEWAY_MODE/d' "$OVPN_ENV"
+    
+    case "$MODE" in
+        normal)
+            echo "export OVPN_GATEWAY_MODE=0" >> "$OVPN_ENV"
+            echo ""
+            echo "=========================================="
+            echo "  已切换到普通 VPN 模式"
+            echo "=========================================="
+            echo ""
+            echo "普通 VPN 模式特性:"
+            echo "  - 标准的 OpenVPN 服务器功能"
+            echo "  - 客户端连接后访问服务器所在网络"
+            echo "  - 不启用 Site-to-Site VPN 功能"
+            echo ""
+            ;;
+        gateway)
+            echo "export OVPN_GATEWAY_MODE=1" >> "$OVPN_ENV"
+            echo ""
+            echo "=========================================="
+            echo "  已切换到网关模式"
+            echo "=========================================="
+            echo ""
+            echo "网关模式特性:"
+            echo "  - 多云网络主入口功能"
+            echo "  - 自动启动 Site-to-Site VPN 连接"
+            echo "  - 客户端可访问所有配置的远程网络"
+            echo ""
+            echo "下一步:"
+            echo "1. 使用 ovpn_add_remote_site 添加远程站点"
+            echo "2. 使用 ovpn_update_routes 更新路由配置"
+            echo "3. 重启 OpenVPN 服务"
+            echo ""
+            ;;
+        *)
+            echo "错误: 无效的模式 '$MODE'" >&2
+            usage
+            exit 1
+            ;;
+    esac
+    
+    echo "配置已保存到: $OVPN_ENV"
+    echo ""
+    echo "⚠ 注意: 请重启 OpenVPN 服务使配置生效"
+    echo "=========================================="
+}
+
+# 主逻辑
+if [ $# -eq 0 ]; then
+    show_current_mode
+    echo ""
+    echo "提示: 使用 '$0 normal' 或 '$0 gateway' 切换模式"
+else
+    case "$1" in
+        -h|--help)
+            usage
+            ;;
+        normal|gateway)
+            set_mode "$1"
+            ;;
+        *)
+            echo "错误: 无效的参数 '$1'" >&2
+            usage
+            exit 1
+            ;;
+    esac
+fi
+

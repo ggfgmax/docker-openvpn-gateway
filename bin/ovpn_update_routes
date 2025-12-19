@@ -1,0 +1,80 @@
+#!/bin/bash
+
+#
+# 更新路由配置 - 从所有 site-to-site 配置中读取远程网段并更新路由
+#
+
+if [ "$DEBUG" == "1" ]; then
+  set -x
+fi
+
+set -e
+
+SITE_DIR="$OPENVPN/sites"
+ROUTES_CONF="$OPENVPN/site-routes.conf"
+
+echo "正在更新路由配置..."
+
+# 检查 sites 目录是否存在
+if [ ! -d "$SITE_DIR" ]; then
+    echo "警告: 未找到站点配置目录 $SITE_DIR"
+    exit 0
+fi
+
+# 清空或创建路由配置文件
+> "$ROUTES_CONF"
+
+echo "# Site-to-Site VPN 路由配置" >> "$ROUTES_CONF"
+echo "# 自动生成于 $(date)" >> "$ROUTES_CONF"
+echo "" >> "$ROUTES_CONF"
+
+# 遍历所有站点配置
+site_count=0
+for info_file in "$SITE_DIR"/*.info; do
+    if [ -f "$info_file" ]; then
+        source "$info_file"
+        
+        echo "# 站点: $SITE_NAME" >> "$ROUTES_CONF"
+        echo "# 远程主机: $REMOTE_HOST" >> "$ROUTES_CONF"
+        echo "# 远程网段: $REMOTE_SUBNET" >> "$ROUTES_CONF"
+        
+        # 添加路由到主配置
+        # OpenVPN 会自动将这些路由推送给客户端
+        IFS='/' read -r subnet mask <<< "$REMOTE_SUBNET"
+        echo "route $subnet $(cidr2mask $REMOTE_SUBNET)" >> "$ROUTES_CONF"
+        
+        # 添加推送路由给客户端
+        echo "push \"route $subnet $(cidr2mask $REMOTE_SUBNET)\"" >> "$ROUTES_CONF"
+        echo "" >> "$ROUTES_CONF"
+        
+        site_count=$((site_count + 1))
+    fi
+done
+
+# CIDR 转子网掩码函数
+cidr2mask() {
+    local i
+    local subnetmask=""
+    local cidr=${1#*/}
+    local full_octets=$(($cidr/8))
+    local partial_octet=$(($cidr%8))
+
+    for ((i=0;i<4;i+=1)); do
+        if [ $i -lt $full_octets ]; then
+            subnetmask+=255
+        elif [ $i -eq $full_octets ]; then
+            subnetmask+=$((256 - 2**(8-$partial_octet)))
+        else
+            subnetmask+=0
+        fi
+        [ $i -lt 3 ] && subnetmask+=.
+    done
+    echo $subnetmask
+}
+
+echo "路由配置已更新: $ROUTES_CONF"
+echo "共找到 $site_count 个站点配置"
+echo ""
+echo "提示: 将以下内容添加到 openvpn.conf:"
+echo "  config $ROUTES_CONF"
+

@@ -1,0 +1,135 @@
+#!/bin/bash
+
+#
+# 配置主入口 VPN 网关
+# 用于打通多个云服务商的内网
+#
+
+if [ "$DEBUG" == "1" ]; then
+  set -x
+fi
+
+set -e
+
+usage() {
+    echo "用法: $0 [选项]"
+    echo ""
+    echo "此脚本用于将 OpenVPN 服务器配置为多云网络的主入口网关"
+    echo ""
+    echo "选项:"
+    echo "  -h    显示此帮助信息"
+    echo "  -i    初始化网关配置"
+    echo "  -s    显示当前状态"
+    echo ""
+}
+
+show_status() {
+    echo "=========================================="
+    echo "  VPN 网关状态"
+    echo "=========================================="
+    echo ""
+    
+    # IP 转发状态
+    echo "IP 转发状态:"
+    echo "  IPv4: $(sysctl net.ipv4.ip_forward | awk '{print $3}')"
+    
+    # 隧道接口
+    echo ""
+    echo "隧道接口:"
+    ip link show | grep -E "tun|tap" || echo "  未找到隧道接口"
+    
+    # iptables NAT 规则
+    echo ""
+    echo "NAT 规则:"
+    iptables -t nat -L POSTROUTING -n -v | grep -E "MASQUERADE|tun|tap" || echo "  未找到 NAT 规则"
+    
+    # iptables 转发规则
+    echo ""
+    echo "转发规则:"
+    iptables -L FORWARD -n -v | grep -E "tun|tap" || echo "  未找到转发规则"
+    
+    # 站点连接状态
+    echo ""
+    if [ -x /usr/local/bin/ovpn_list_sites ]; then
+        /usr/local/bin/ovpn_list_sites
+    fi
+}
+
+init_gateway() {
+    echo "=========================================="
+    echo "  初始化 VPN 网关配置"
+    echo "=========================================="
+    echo ""
+    
+    # 启用 IP 转发
+    echo "1. 启用 IP 转发..."
+    sysctl -w net.ipv4.ip_forward=1
+    echo "net.ipv4.ip_forward=1" >> /etc/sysctl.conf 2>/dev/null || true
+    
+    # 配置 iptables
+    echo ""
+    echo "2. 配置 iptables 规则..."
+    
+    # 允许 VPN 隧道之间的转发
+    iptables -C FORWARD -i tun+ -o tun+ -j ACCEPT 2>/dev/null || {
+        iptables -I FORWARD -i tun+ -o tun+ -j ACCEPT
+        echo "  ✓ 已添加 tun 接口转发规则"
+    }
+    
+    iptables -C FORWARD -i tap+ -o tap+ -j ACCEPT 2>/dev/null || {
+        iptables -I FORWARD -i tap+ -o tap+ -j ACCEPT
+        echo "  ✓ 已添加 tap 接口转发规则"
+    }
+    
+    # 允许客户端 VPN 到 Site-to-Site VPN 的转发
+    iptables -C FORWARD -i tun0 -j ACCEPT 2>/dev/null || {
+        iptables -I FORWARD -i tun0 -j ACCEPT
+        echo "  ✓ 已添加客户端 VPN 转发规则"
+    }
+    
+    echo ""
+    echo "3. 创建站点配置目录..."
+    mkdir -p "$OPENVPN/sites"
+    mkdir -p "$OPENVPN/site-pids"
+    echo "  ✓ 目录已创建"
+    
+    echo ""
+    echo "=========================================="
+    echo "网关初始化完成！"
+    echo ""
+    echo "下一步:"
+    echo "1. 使用 'ovpn_add_remote_site' 添加远程云平台的 VPN 站点"
+    echo "2. 使用 'ovpn_update_routes' 更新路由配置"
+    echo "3. 重新生成配置: ovpn_genconfig -u udp://YOUR_SERVER_URL"
+    echo "4. 重启 OpenVPN 服务"
+    echo "=========================================="
+}
+
+# 解析参数
+if [ $# -eq 0 ]; then
+    usage
+    exit 0
+fi
+
+while getopts ":his" opt; do
+    case $opt in
+        h)
+            usage
+            exit 0
+            ;;
+        i)
+            init_gateway
+            exit 0
+            ;;
+        s)
+            show_status
+            exit 0
+            ;;
+        \?)
+            echo "无效的选项: -$OPTARG" >&2
+            usage
+            exit 1
+            ;;
+    esac
+done
+

@@ -1,0 +1,31 @@
+version: "3.8"
+
+services:
+  openvpn-gateway:
+    build: .
+    image: openvpn-gateway:latest
+    container_name: openvpn-gateway
+    ports:
+      - "1194:1194/udp"
+    cap_add:
+      - NET_ADMIN
+    volumes:
+      - openvpn-gateway-data:/etc/openvpn
+    restart: unless-stopped
+    environment:
+      # 模式设置: 0=普通VPN, 1=网关模式
+      - GATEWAY_MODE=${GATEWAY_MODE:-0}
+      # LDAP 设置: 0=禁用, 1=启用
+      - LDAP_ENABLED=${LDAP_ENABLED:-0}
+      # 调试模式
+      - DEBUG=${DEBUG:-0}
+    networks:
+      - vpn-network
+
+volumes:
+  openvpn-gateway-data:
+    driver: local
+
+networks:
+  vpn-network:
+    driver: bridge
