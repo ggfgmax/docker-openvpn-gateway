@@ -781,7 +781,7 @@ EOF"""
             return jsonify({"error": "客户端名称是必需的", "success": False}), 400
 
         logger.info(f"吊销客户端证书: {client_name}")
-        
+
         # 使用 expect 自动确认吊销
         cmd = f"""expect << 'EOF'
 set timeout 30
@@ -794,39 +794,44 @@ expect {{
     eof
 }}
 EOF"""
-        
+
         result = run_command(cmd)
 
         if result["success"]:
             logger.info(f"证书吊销成功，生成 CRL")
             crl_result = run_command("easyrsa gen-crl")
-            
+
             if crl_result["success"]:
                 logger.info(f"客户端 {client_name} 证书已吊销并更新 CRL")
                 return jsonify(
                     {
                         "message": f"✅ 客户端 {client_name} 证书已吊销\n\n已更新证书吊销列表（CRL）\n\n⚠️ 建议重启服务使吊销立即生效:\ndocker restart openvpn-gateway",
-                        "success": True
+                        "success": True,
                     }
                 )
             else:
                 logger.warning(f"CRL 生成失败: {crl_result.get('stderr', '')}")
-                return jsonify(
-                    {
-                        "message": f"证书已吊销，但 CRL 更新失败",
-                        "error": crl_result.get("stderr", ""),
-                        "success": False
-                    }
-                ), 500
+                return (
+                    jsonify(
+                        {
+                            "message": f"证书已吊销，但 CRL 更新失败",
+                            "error": crl_result.get("stderr", ""),
+                            "success": False,
+                        }
+                    ),
+                    500,
+                )
         else:
             error_msg = result.get("stderr") or result.get("error") or "吊销失败"
             logger.error(f"吊销客户端 {client_name} 失败: {error_msg}")
             return (
-                jsonify({
-                    "error": error_msg,
-                    "stdout": result.get("stdout", ""),
-                    "success": False
-                }),
+                jsonify(
+                    {
+                        "error": error_msg,
+                        "stdout": result.get("stdout", ""),
+                        "success": False,
+                    }
+                ),
                 500,
             )
 
