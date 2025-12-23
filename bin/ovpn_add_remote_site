@@ -136,8 +136,10 @@ verb 3
 # 路由配置 - 将远程网段路由到此 VPN 隧道
 route $SUBNET_IP $SUBNET_MASK
 
-# 不使用默认网关
-route-nopull
+# 不接管默认路由（避免把所有流量都走远端站点）
+# 说明：不要用 route-nopull，否则远端 PUSH 的 route 会在 OpenVPN 2.6+ 触发
+# “option 'route' cannot be used in this context ([PUSH-OPTIONS])” 的报错刷屏。
+pull-filter ignore "redirect-gateway"
 
 # 日志文件
 log /var/log/openvpn-${SITE_NAME}.log

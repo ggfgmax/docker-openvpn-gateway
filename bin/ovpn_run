@@ -126,6 +126,37 @@ if [ "$GATEWAY_MODE" == "1" ]; then
         /usr/local/bin/ovpn_start_site_connections &
     fi
     
+    # 启动站点日志聚合输出（方便 kubectl logs 查看）
+    echo "  启动站点日志聚合..."
+    
+    # 清理旧的标记文件（避免容器重启后不输出日志）
+    rm -f /var/log/*.tailed 2>/dev/null
+    
+    (
+        # 等待站点连接启动完成
+        sleep 3
+        
+        # 持续监控并输出所有站点日志到标准输出
+        while true; do
+            for log_file in /var/log/openvpn-*.log; do
+                if [ -f "$log_file" ] && [ ! -f "${log_file}.tailed" ]; then
+                    # 提取站点名（去掉路径和扩展名）
+                    site_name=$(basename "$log_file" .log | sed 's/^openvpn-//')
+                    
+                    # 后台持续输出这个站点的日志（加上站点名前缀）
+                    # -n 10: 先输出最近 10 行历史日志，然后持续跟踪新增内容
+                    tail -F -n 10 "$log_file" 2>/dev/null | sed "s/^/[${site_name}] /" &
+                    
+                    # 标记已处理（避免重复 tail）
+                    touch "${log_file}.tailed"
+                fi
+            done
+            
+            # 每 10 秒检查一次是否有新站点日志文件
+            sleep 10
+        done
+    ) &
+    
     echo "  ✓ Site-to-Site VPN 功能已启用"
 else
     echo "普通 VPN 模式: Site-to-Site VPN 功能未启用"

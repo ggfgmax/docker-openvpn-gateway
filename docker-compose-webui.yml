@@ -30,6 +30,7 @@ services:
       - CA_PASSWORD=${CA_PASSWORD:-}
       # 调试模式
       - DEBUG=${DEBUG:-0}
+      - TZ=${TZ:-Asia/Shanghai}
     networks:
       - vpn-network
     # 同时运行 OpenVPN 和 Web UI
