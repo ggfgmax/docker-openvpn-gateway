@@ -1,7 +1,7 @@
 #!/bin/bash
 
 #
-# 启动所有 Site-to-Site VPN 连接（支持 OpenVPN 和 WireGuard）
+# 启动所有 Site-to-Site VPN 连接
 #
 
 if [ "$DEBUG" == "1" ]; then
@@ -11,101 +11,50 @@ fi
 set -e
 
 SITE_DIR="$OPENVPN/sites"
-WG_DIR="$OPENVPN/wireguard"
 PID_DIR="$OPENVPN/site-pids"
 
 mkdir -p "$PID_DIR"
 
 echo "正在启动 Site-to-Site VPN 连接..."
 
-site_count=0
-
-# 启动 OpenVPN 站点连接
-if [ -d "$SITE_DIR" ]; then
-    for conf_file in "$SITE_DIR"/*.conf; do
-        if [ -f "$conf_file" ]; then
-            site_name=$(basename "$conf_file" .conf)
-            pid_file="$PID_DIR/${site_name}.pid"
-            
-            # 检查是否已经运行（改进的检查逻辑）
-            if [ -f "$pid_file" ]; then
-                old_pid=$(cat "$pid_file")
-                # 检查进程是否存在且是 openvpn 进程，且配置文件匹配
-                if kill -0 "$old_pid" 2>/dev/null && ps -p "$old_pid" -o args= | grep -q "$conf_file"; then
-                    echo "站点 $site_name (OpenVPN) 已经在运行 (PID: $old_pid)"
-                    site_count=$((site_count + 1))
-                    continue
-                else
-                    # PID 文件存在但进程不存在或不匹配，清理旧文件
-                    echo "清理站点 $site_name 的旧 PID 文件 (PID: $old_pid 不存在或不匹配)"
-                    rm -f "$pid_file"
-                fi
-            fi
-            
-            echo "正在启动站点连接: $site_name (OpenVPN)"
-            
-            # 启动 OpenVPN 客户端连接
-            openvpn --config "$conf_file" --daemon --writepid "$pid_file"
-            
-            site_count=$((site_count + 1))
-            
-            # 等待一下让连接建立
-            sleep 2
-        fi
-    done
+# 检查 sites 目录是否存在
+if [ ! -d "$SITE_DIR" ]; then
+    echo "警告: 未找到站点配置目录 $SITE_DIR"
+    exit 0
 fi
 
-# 启动 WireGuard 站点连接
-if [ -d "$WG_DIR" ]; then
-    for conf_file in "$WG_DIR"/wg-*.conf; do
-        if [ -f "$conf_file" ]; then
-            site_name=$(basename "$conf_file" .conf | sed 's/^wg-//')
-            wg_interface="wg-${site_name}"
-            
-            # 检查接口是否已经存在
-            if ip link show "$wg_interface" &>/dev/null; then
-                echo "站点 $site_name (WireGuard) 已经在运行"
+site_count=0
+for conf_file in "$SITE_DIR"/*.conf; do
+    if [ -f "$conf_file" ]; then
+        site_name=$(basename "$conf_file" .conf)
+        pid_file="$PID_DIR/${site_name}.pid"
+        
+        # 检查是否已经运行（改进的检查逻辑）
+        if [ -f "$pid_file" ]; then
+            old_pid=$(cat "$pid_file")
+            # 检查进程是否存在且是 openvpn 进程，且配置文件匹配
+            if kill -0 "$old_pid" 2>/dev/null && ps -p "$old_pid" -o args= | grep -q "$conf_file"; then
+                echo "站点 $site_name 已经在运行 (PID: $old_pid)"
                 site_count=$((site_count + 1))
                 continue
+            else
+                # PID 文件存在但进程不存在或不匹配，清理旧文件
+                echo "清理站点 $site_name 的旧 PID 文件 (PID: $old_pid 不存在或不匹配)"
+                rm -f "$pid_file"
             fi
-            
-            echo "正在启动站点连接: $site_name (WireGuard)"
-            
-            # 使用 wg-quick 启动 WireGuard 连接
-            # 创建接口
-            ip link add dev "$wg_interface" type wireguard
-            wg setconf "$wg_interface" "$conf_file"
-            
-            # 读取配置中的地址
-            local_address=$(grep "^Address" "$conf_file" | cut -d= -f2 | tr -d ' ')
-            if [ -n "$local_address" ]; then
-                ip addr add "$local_address" dev "$wg_interface"
-            fi
-            
-            # 启动接口
-            ip link set "$wg_interface" up
-            
-            # 添加路由
-            info_file="$WG_DIR/${site_name}.info"
-            if [ -f "$info_file" ]; then
-                source "$info_file"
-                # 支持逗号分隔的多个网段
-                IFS=',' read -ra SUBNETS <<< "$REMOTE_SUBNET"
-                for subnet in "${SUBNETS[@]}"; do
-                    subnet=$(echo "$subnet" | tr -d ' ')
-                    ip route add "$subnet" dev "$wg_interface" 2>/dev/null || echo "路由 $subnet 已存在"
-                done
-            fi
-            
-            site_count=$((site_count + 1))
-            
-            echo "  ✓ WireGuard 接口 $wg_interface 已启动"
-            
-            # 等待一下让连接建立
-            sleep 1
         fi
-    done
-fi
+        
+        echo "正在启动站点连接: $site_name"
+        
+        # 启动 OpenVPN 客户端连接
+        openvpn --config "$conf_file" --daemon --writepid "$pid_file"
+        
+        site_count=$((site_count + 1))
+        
+        # 等待一下让连接建立
+        sleep 2
+    fi
+done
 
 echo ""
 echo "已启动 $site_count 个站点连接"
@@ -113,8 +62,5 @@ echo "已启动 $site_count 个站点连接"
 # 显示所有隧道状态
 echo ""
 echo "当前隧道接口:"
-echo "OpenVPN 隧道:"
-ip link show | grep "tun-" || echo "  未找到 OpenVPN 隧道接口"
-echo "WireGuard 隧道:"
-ip link show | grep "wg-" || echo "  未找到 WireGuard 隧道接口"
+ip link show | grep "tun-" || echo "未找到隧道接口"
 

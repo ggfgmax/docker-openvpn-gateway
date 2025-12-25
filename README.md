@@ -1,26 +1,13 @@
 # OpenVPN 多云网络主入口网关 🚀
 
-一个增强版的 Docker OpenVPN，支持 **Web 管理界面**、**多云网络打通**、**WireGuard 混合架构**、**LDAP 认证**。  
+一个增强版的 Docker OpenVPN，支持 **Web 管理界面**、**多云网络打通**、**LDAP 认证**。  
 让小白也能轻松配置和管理 VPN！
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Docker](https://img.shields.io/badge/docker-ready-blue.svg)](https://www.docker.com/)
-[![Version](https://img.shields.io/badge/version-2.1.0-brightgreen.svg)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-2.0.0-brightgreen.svg)](CHANGELOG.md)
 
-## 🆕 v2.1 重大更新
-
-### 混合架构：OpenVPN + WireGuard
-- **网关层**：继续使用 OpenVPN（稳定、兼容性好）
-- **站点连接**：改用 WireGuard（快速、现代、不易被封）
-- **最佳组合**：客户端 → OpenVPN → 网关 → WireGuard → 各云平台
-
-### 为什么这样设计？
-- ✅ **避免端口封禁**：WireGuard 更难被识别和封禁
-- ✅ **性能提升**：WireGuard 比 OpenVPN 快 3-5 倍
-- ✅ **配置简单**：WireGuard 配置更简洁
-- ✅ **双重优势**：兼顾 OpenVPN 的生态和 WireGuard 的性能
-
-## ✨ 核心特性
+## ✨ v2.0 核心特性
 
 ### 🎯 Web 管理界面
 - **零命令行操作** - 所有配置在浏览器中完成
@@ -29,11 +16,8 @@
 - **证书过期监控** - 自动显示证书过期时间和剩余天数（颜色预警）
 - **实时状态监控** - 自动刷新运行状态
 
-### 🌐 多云网络打通（OpenVPN + WireGuard 混合架构）
+### 🌐 多云网络打通
 - **一个 VPN 访问所有云** - 华为云、AWS、GCP、阿里云等
-- **混合架构优势** - 网关用 OpenVPN，站点用 WireGuard
-- **避免端口封禁** - WireGuard 更难被识别和封锁
-- **性能大幅提升** - WireGuard 速度比 OpenVPN 快 3-5 倍
 - **自动路由管理** - 自动配置和推送路由
 - **自动重启恢复** - 重启后自动连接所有站点
 - **网段智能检测** - 避免 IP 冲突
@@ -75,31 +59,23 @@ docker restart openvpn-gateway
 - 实时显示：运行模式、LDAP 状态、站点数量、客户端数量
 - 自动刷新（每 30 秒）
 
-### 🌐 站点管理（网关模式 - 支持 OpenVPN 和 WireGuard）
-
-**添加 WireGuard 站点**（推荐 - 性能更好，不易被封）：
-1. 填写站点名称（如：`gcp-wg`）
-2. 填写远程 VPC 网段（如：`10.80.0.0/16`）
-3. 填写远程 WireGuard 端点（如：`1.2.3.4:51820`）
-4. 填写远程公钥
-5. 点击"添加站点" → 系统自动生成密钥对 → 完成！
-
-**添加 OpenVPN 站点**（兼容传统方案）：
+### 🌐 站点管理（网关模式）
+**一键添加站点**（只需 3 步）：
 1. 填写站点名称（如：`gcp`）
 2. 填写远程 VPC 网段（如：`10.80.0.0/16`）
 3. 粘贴 .ovpn 文件完整内容
 4. 点击"一键添加" → 完成！
 
-**系统自动完成**：
-- ✅ WireGuard：生成密钥对、配置隧道、添加路由
-- ✅ OpenVPN：提取证书、配置连接、更新路由
-- ✅ 自动推送路由到客户端
-- ✅ 自动管理网络接口
+**系统自动**：
+- ✅ 提取服务器地址、端口、协议
+- ✅ 提取 CA 证书、客户端证书、密钥
+- ✅ 配置路由和连接
+- ✅ 更新路由推送配置
 
 **站点管理功能**：
-- 查看所有站点状态（OpenVPN + WireGuard）
-- 证书过期时间监控（OpenVPN 站点）
-- 更新站点配置
+- 查看所有站点状态
+- 证书过期时间监控（绿/橙/红色预警）
+- 更新站点证书
 - 删除站点（自动清理）
 
 ### 👥 客户端管理
@@ -120,14 +96,9 @@ docker restart openvpn-gateway
 
 ## 📖 使用场景
 
-### 场景 1: 多云网络打通（推荐 - 混合架构）
+### 场景 1: 多云网络打通（推荐）
 
 **需求**: 统一访问华为云、AWS、GCP 等多个云平台
-
-**新架构优势**：
-- 客户端 → OpenVPN → 网关 → WireGuard → 各云平台
-- 避免 OpenVPN 端口被封禁
-- WireGuard 性能更好、速度更快
 
 **步骤**：
 
@@ -142,77 +113,43 @@ docker restart openvpn-gateway
 - Web UI → 模式设置 → 网关模式 → 保存
 - 重启：`docker restart openvpn-gateway`
 
-3. **在远程云平台部署 WireGuard 服务器**
-```bash
-# 在 GCP/AWS/阿里云等云主机上安装 WireGuard
-sudo apt update && sudo apt install wireguard -y
-
-# 生成密钥对
-wg genkey | tee privatekey | wg pubkey > publickey
-
-# 配置 WireGuard（示例：/etc/wireguard/wg0.conf）
-[Interface]
-PrivateKey = <云平台私钥>
-Address = 10.200.0.1/24
-ListenPort = 51820
-
-[Peer]
-PublicKey = <网关公钥，添加站点时会显示>
-AllowedIPs = 10.8.0.0/24
-
-# 启动 WireGuard
-sudo wg-quick up wg0
-sudo systemctl enable wg-quick@wg0
+3. **添加 GCP 站点**（示例）
 ```
-
-4. **添加 GCP WireGuard 站点**（示例）
-```
-Web UI → 站点管理 → 添加站点：
-• VPN 类型: WireGuard
+Web UI → 站点管理：
 • 站点名称: gcp
-• 远程端点: <GCP公网IP>:51820
-• 远程公钥: <GCP WireGuard 公钥>
 • 远程VPC网段: 10.80.0.0/16
-• 本地地址: 10.200.0.2/24
-点击"添加站点"
-→ 系统会显示网关的公钥，需要添加到 GCP WireGuard 配置中
+• .ovpn配置: [粘贴GCP提供的完整.ovpn内容]
+点击"一键添加站点"
 ```
 
-5. **添加更多站点**（AWS、阿里云等）
-- 在各云平台部署 WireGuard
-- 重复上面的步骤添加
-- 每个站点用不同的名称和网段
+4. **添加更多站点**（AWS、阿里云等）
+- 重复上面的步骤
+- 每个站点用不同的名称
 
-6. **重启服务**
+5. **重启服务**
 ```bash
 docker restart openvpn-gateway
 ```
 
-7. **生成客户端证书并连接**
+6. **生成客户端证书并连接**
 ```
 Web UI → 客户端管理 → 生成证书 → 下载 → 连接
 ```
 
 **完成后**：
-- ✅ 客户端连接一次网关（OpenVPN）
-- ✅ 网关通过 WireGuard 连接各云平台
+- ✅ 客户端连接一次网关
 - ✅ 自动访问所有云平台内网
 - ✅ 无需切换 VPN
-- ✅ 避免端口封禁问题
 
 **网络架构**：
 ```
 你的电脑 (10.8.0.6)
-    ↓ OpenVPN 连接
+    ↓ 连接网关 VPN
 网关 (10.8.0.1)
-    ├─→ WireGuard → GCP (10.80.0.0/16)
-    ├─→ WireGuard → AWS (10.0.0.0/16)
-    └─→ WireGuard → 阿里云 (172.16.0.0/16)
+    ├─→ GCP VPN → 10.80.0.0/16
+    ├─→ AWS VPN → 10.0.0.0/16
+    └─→ 阿里云 VPN → 172.16.0.0/16
 ```
-
-**兼容性说明**：
-- 如果远程站点只支持 OpenVPN，仍可使用原有的 OpenVPN Site-to-Site 方式
-- 系统同时支持 OpenVPN 和 WireGuard 站点混合使用
 
 ### 场景 2: 企业内网访问（普通 VPN）
 
@@ -245,71 +182,25 @@ environment:
 
 ## 🆘 常见问题
 
-### Q1: WireGuard 和 OpenVPN 有什么区别？
-
-| 特性 | WireGuard | OpenVPN |
-|------|-----------|---------|
-| 性能 | ⭐⭐⭐⭐⭐ 非常快 | ⭐⭐⭐ 中等 |
-| 配置复杂度 | ⭐⭐⭐⭐⭐ 简单 | ⭐⭐ 复杂 |
-| 端口封禁风险 | ⭐⭐⭐⭐⭐ 很低 | ⭐⭐ 较高 |
-| 兼容性 | ⭐⭐⭐ 需要新内核 | ⭐⭐⭐⭐⭐ 广泛支持 |
-
-**推荐方案**：
-- 网关用 OpenVPN（兼容性好，客户端广泛支持）
-- 站点连接用 WireGuard（快速、不易被封）
-
-### Q2: 如何选择站点连接方式？
-
-**优先使用 WireGuard**（如果满足以下条件）：
-- ✅ 远程云主机支持 WireGuard（Linux 5.6+ 内核）
-- ✅ 云平台允许 UDP 端口（51820 等）
-- ✅ 需要更好的性能和速度
-
-**使用 OpenVPN**（以下情况）：
-- ❌ 远程云主机内核太旧
-- ❌ 只有 OpenVPN 服务器可用
-- ❌ 需要 TCP 协议穿透防火墙
-
-### Q3: 认证窗口不弹出？
+### Q1: 认证窗口不弹出？
 **已修复**！现在会自动弹出认证窗口。
 
-### Q4: 生成客户端证书失败？
+### Q2: 生成客户端证书失败？
 **已修复**！默认使用无密码 CA，expect 自动确认。
 
-### Q5: 添加/删除站点后需要重启吗？
+### Q3: 添加/删除站点后需要重启吗？
 **是的**！OpenVPN 在启动时加载配置。
 ```bash
 docker restart openvpn-gateway
 # 客户端也需要重新连接
 ```
 
-### Q6: 客户端无法访问远程站点内网？
-
+### Q4: 客户端无法访问远程站点内网？
 **检查清单**：
-1. 网关能否 ping 通远程内网？
-   ```bash
-   # OpenVPN 站点
-   docker exec openvpn-gateway ping 10.80.0.2
-   
-   # WireGuard 站点
-   docker exec openvpn-gateway wg show
-   docker exec openvpn-gateway ping -I wg-gcp 10.80.0.2
-   ```
+1. 网关能否 ping 通远程内网？ → `docker exec openvpn-gateway ping 10.80.0.2`
 2. 是否重启了网关？
 3. 客户端是否重新连接了？
 4. **是否有网段冲突**？
-
-**WireGuard 站点特定检查**：
-```bash
-# 查看 WireGuard 接口状态
-docker exec openvpn-gateway wg show
-
-# 查看路由
-docker exec openvpn-gateway ip route | grep wg-
-
-# 查看接口
-docker exec openvpn-gateway ip link show | grep wg-
-```
 
 **网段冲突**（重要！）：
 ```bash

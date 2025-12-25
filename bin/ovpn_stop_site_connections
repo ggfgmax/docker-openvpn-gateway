@@ -1,7 +1,7 @@
 #!/bin/bash
 
 #
-# 停止所有 Site-to-Site VPN 连接（支持 OpenVPN 和 WireGuard）
+# 停止所有 Site-to-Site VPN 连接
 #
 
 if [ "$DEBUG" == "1" ]; then
@@ -14,39 +14,27 @@ PID_DIR="$OPENVPN/site-pids"
 
 echo "正在停止 Site-to-Site VPN 连接..."
 
-site_count=0
-
-# 停止 OpenVPN 站点连接
-if [ -d "$PID_DIR" ]; then
-    for pid_file in "$PID_DIR"/*.pid; do
-        if [ -f "$pid_file" ]; then
-            site_name=$(basename "$pid_file" .pid)
-            pid=$(cat "$pid_file")
-            
-            if kill -0 "$pid" 2>/dev/null; then
-                echo "正在停止站点连接: $site_name (OpenVPN, PID: $pid)"
-                kill "$pid"
-                rm -f "$pid_file"
-                site_count=$((site_count + 1))
-            else
-                echo "站点 $site_name 未运行，清理 PID 文件"
-                rm -f "$pid_file"
-            fi
-        fi
-    done
+# 检查 PID 目录是否存在
+if [ ! -d "$PID_DIR" ]; then
+    echo "未找到活动的站点连接"
+    exit 0
 fi
 
-# 停止 WireGuard 站点连接
-for wg_interface in $(ip link show | grep -o 'wg-[^:]*' || true); do
-    if [ -n "$wg_interface" ]; then
-        site_name=${wg_interface#wg-}
-        echo "正在停止站点连接: $site_name (WireGuard)"
+site_count=0
+for pid_file in "$PID_DIR"/*.pid; do
+    if [ -f "$pid_file" ]; then
+        site_name=$(basename "$pid_file" .pid)
+        pid=$(cat "$pid_file")
         
-        # 关闭接口并删除
-        ip link set "$wg_interface" down 2>/dev/null || true
-        ip link delete "$wg_interface" 2>/dev/null || true
-        
-        site_count=$((site_count + 1))
+        if kill -0 "$pid" 2>/dev/null; then
+            echo "正在停止站点连接: $site_name (PID: $pid)"
+            kill "$pid"
+            rm -f "$pid_file"
+            site_count=$((site_count + 1))
+        else
+            echo "站点 $site_name 未运行，清理 PID 文件"
+            rm -f "$pid_file"
+        fi
     fi
 done
 

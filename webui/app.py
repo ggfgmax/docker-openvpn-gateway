@@ -310,12 +310,10 @@ def manage_ldap():
 @app.route("/api/sites", methods=["GET", "POST", "DELETE"])
 @require_auth
 def manage_sites():
-    """管理远程站点（支持 OpenVPN 和 WireGuard）"""
+    """管理远程站点"""
     if request.method == "GET":
-        sites = []
-        
-        # 获取 OpenVPN 站点
         sites_dir = f"{OPENVPN}/sites"
+        sites = []
         if os.path.exists(sites_dir):
             for info_file in os.listdir(sites_dir):
                 if info_file.endswith(".info"):
@@ -328,10 +326,6 @@ def manage_sites():
                                 # 去除引号（兼容新旧格式）
                                 value = value.strip('"').strip("'")
                                 site_info[key] = value
-
-                    # 设置 VPN 类型（如果未设置，默认为 openvpn）
-                    if "VPN_TYPE" not in site_info:
-                        site_info["VPN_TYPE"] = "openvpn"
 
                     # 检查是否已配置证书
                     conf_file = os.path.join(
@@ -404,152 +398,54 @@ def manage_sites():
                                     )
 
                     sites.append(site_info)
-        
-        # 获取 WireGuard 站点
-        wg_dir = f"{OPENVPN}/wireguard"
-        if os.path.exists(wg_dir):
-            for info_file in os.listdir(wg_dir):
-                if info_file.endswith(".info"):
-                    info_path = os.path.join(wg_dir, info_file)
-                    site_info = {}
-                    with open(info_path, "r") as f:
-                        for line in f:
-                            if "=" in line and not line.strip().startswith("#"):
-                                key, value = line.strip().split("=", 1)
-                                # 去除引号（兼容新旧格式）
-                                value = value.strip('"').strip("'")
-                                site_info[key] = value
-                    
-                    # WireGuard 站点不需要证书，标记为已配置
-                    site_info["has_cert"] = True
-                    site_info["expiry_date"] = None
-                    site_info["days_left"] = None
-                    sites.append(site_info)
-        
         return jsonify(sites)
 
     if request.method == "POST":
-        # 添加站点（支持 OpenVPN 和 WireGuard）
+        # 添加站点
         data = request.json
         name = data.get("name", "")
-        vpn_type = data.get("vpn_type", "openvpn")  # openvpn 或 wireguard
+        host = data.get("host", "")
+        port = data.get("port", "1194")
         subnet = data.get("subnet", "")
+        protocol = data.get("protocol", "udp")
 
-        if not name or not subnet:
+        if not name or not host or not subnet:
             return (
-                jsonify({"error": "站点名称和子网是必需的", "success": False}),
+                jsonify({"error": "站点名称、主机和子网是必需的", "success": False}),
                 400,
             )
 
-        if vpn_type == "wireguard":
-            # WireGuard 站点
-            endpoint = data.get("endpoint", "")
-            public_key = data.get("public_key", "")
-            local_address = data.get("local_address", "")
-            port = data.get("port", "")
+        cmd = f"ovpn_add_remote_site -n {name} -h {host} -p {port} -s {subnet} -P {protocol}"
+        result = run_command(cmd)
 
-            if not endpoint or not public_key:
-                return (
-                    jsonify({"error": "端点和公钥是必需的", "success": False}),
-                    400,
-                )
-
-            cmd = f'wg_add_remote_site -n {name} -e "{endpoint}" -k "{public_key}" -s "{subnet}"'
-            if port:
-                cmd += f' -p {port}'
-            if local_address:
-                cmd += f' -a "{local_address}"'
-            
-            result = run_command(cmd)
-
-            if result["success"]:
-                return jsonify(
-                    {"message": f"WireGuard 站点 {name} 添加成功！请重启服务使配置生效。", "success": True, "output": result.get("stdout", "")}
-                )
-            else:
-                return (
-                    jsonify({"error": result.get("stderr", "添加失败"), "success": False}),
-                    500,
-                )
+        if result["success"]:
+            return jsonify(
+                {"message": f"站点 {name} 添加成功，请继续配置证书", "success": True}
+            )
         else:
-            # OpenVPN 站点
-            host = data.get("host", "")
-            port = data.get("port", "1194")
-            protocol = data.get("protocol", "udp")
-
-            if not host:
-                return (
-                    jsonify({"error": "主机地址是必需的", "success": False}),
-                    400,
-                )
-
-            cmd = f"ovpn_add_remote_site -n {name} -h {host} -p {port} -s {subnet} -P {protocol}"
-            result = run_command(cmd)
-
-            if result["success"]:
-                return jsonify(
-                    {"message": f"OpenVPN 站点 {name} 添加成功，请继续配置证书", "success": True}
-                )
-            else:
-                return (
-                    jsonify({"error": result.get("stderr", "添加失败"), "success": False}),
-                    500,
-                )
+            return (
+                jsonify({"error": result.get("stderr", "添加失败"), "success": False}),
+                500,
+            )
 
     if request.method == "DELETE":
-        # 删除站点（支持 OpenVPN 和 WireGuard）
+        # 删除站点
         site_name = request.args.get("name")
         if not site_name:
             return jsonify({"error": "站点名称是必需的", "success": False}), 400
 
         logger.info(f"删除站点请求: {site_name}")
 
+        sites_dir = f"{OPENVPN}/sites"
         deleted_files = []
-        vpn_type = None
 
         try:
-            # 先检查是否为 WireGuard 站点
-            wg_dir = f"{OPENVPN}/wireguard"
-            wg_info_file = os.path.join(wg_dir, f"{site_name}.info")
-            
-            if os.path.exists(wg_info_file):
-                vpn_type = "wireguard"
-                # WireGuard 站点
-                for filename in [f"{site_name}.info", f"wg-{site_name}.conf"]:
-                    file_path = os.path.join(wg_dir, filename)
-                    if os.path.exists(file_path):
-                        os.remove(file_path)
-                        deleted_files.append(filename)
-                        logger.info(f"已删除文件: {file_path}")
-                
-                # 停止 WireGuard 接口
-                wg_interface = f"wg-{site_name}"
-                logger.info(f"停止 WireGuard 接口: {wg_interface}")
-                run_command(f"ip link set {wg_interface} down 2>/dev/null || true")
-                run_command(f"ip link delete {wg_interface} 2>/dev/null || true")
-            else:
-                # OpenVPN 站点
-                vpn_type = "openvpn"
-                sites_dir = f"{OPENVPN}/sites"
-                for ext in [".conf", ".info", ".key", ".crt", "-ca.crt"]:
-                    file_path = os.path.join(sites_dir, f"{site_name}{ext}")
-                    if os.path.exists(file_path):
-                        os.remove(file_path)
-                        deleted_files.append(f"{site_name}{ext}")
-                        logger.info(f"已删除文件: {file_path}")
-
-                # 停止 OpenVPN 站点连接进程
-                logger.info(f"停止站点 {site_name} 的连接进程")
-                pid_file = f"{OPENVPN}/site-pids/{site_name}.pid"
-                if os.path.exists(pid_file):
-                    try:
-                        with open(pid_file, "r") as f:
-                            pid = f.read().strip()
-                        run_command(f"kill {pid}")
-                        os.remove(pid_file)
-                        logger.info(f"已停止站点进程 PID: {pid}")
-                    except Exception as e:
-                        logger.warning(f"停止进程失败: {str(e)}")
+            for ext in [".conf", ".info", ".key", ".crt", "-ca.crt"]:
+                file_path = os.path.join(sites_dir, f"{site_name}{ext}")
+                if os.path.exists(file_path):
+                    os.remove(file_path)
+                    deleted_files.append(f"{site_name}{ext}")
+                    logger.info(f"已删除文件: {file_path}")
 
             if not deleted_files:
                 logger.warning(f"站点 {site_name} 没有找到任何文件")
@@ -558,6 +454,19 @@ def manage_sites():
                     404,
                 )
 
+            # 停止站点连接进程
+            logger.info(f"停止站点 {site_name} 的连接进程")
+            pid_file = f"{OPENVPN}/site-pids/{site_name}.pid"
+            if os.path.exists(pid_file):
+                try:
+                    with open(pid_file, "r") as f:
+                        pid = f.read().strip()
+                    run_command(f"kill {pid}")
+                    os.remove(pid_file)
+                    logger.info(f"已停止站点进程 PID: {pid}")
+                except Exception as e:
+                    logger.warning(f"停止进程失败: {str(e)}")
+
             # 更新路由配置
             logger.info(f"更新路由配置")
             result = run_command("ovpn_update_routes")
@@ -565,15 +474,15 @@ def manage_sites():
                 logger.warning(f"更新路由失败: {result.get('stderr', '')}")
 
             logger.info(
-                f"站点 {site_name} ({vpn_type}) 删除成功，已删除: {', '.join(deleted_files)}"
+                f"站点 {site_name} 删除成功，已删除: {', '.join(deleted_files)}"
             )
 
             # 提示用户重启服务
-            message = f"""✅ {vpn_type.upper()} 站点 {site_name} 删除成功！
+            message = f"""✅ 站点 {site_name} 删除成功！
 
 已完成操作：
 • 删除站点文件: {', '.join(deleted_files)}
-• 停止站点连接进程/接口
+• 停止站点连接进程
 • 更新路由配置（已从 site-routes.conf 中移除）
 
 ⚠️ 重要：需要重启服务使配置生效

@@ -7,8 +7,7 @@ MAINTAINER Kyle Manna <kyle@kylemanna.com>
 
 RUN sed -i 's/dl-cdn.alpinelinux.org/mirrors.ustc.edu.cn/g' /etc/apk/repositories && \
     apk add --update openvpn iptables bash easy-rsa openvpn-auth-pam google-authenticator \
-    iproute2 curl libldap openldap-clients python3 py3-pip expect openvpn-auth-ldap \
-    wireguard-tools && \
+    iproute2 curl libldap openldap-clients python3 py3-pip expect openvpn-auth-ldap && \
     ln -s /usr/share/easy-rsa/easyrsa /usr/local/bin && \
     rm -rf /tmp/* /var/tmp/* /var/cache/apk/*
 
