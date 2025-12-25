@@ -1,0 +1,169 @@
+#!/bin/bash
+
+#
+# 添加 Site-to-Site WireGuard 连接配置
+# 用于连接其他云服务商的 WireGuard VPN
+#
+
+if [ "$DEBUG" == "1" ]; then
+  set -x
+fi
+
+set -e
+
+usage() {
+    echo "用法: $0 -n SITE_NAME -e ENDPOINT -k PUBLIC_KEY -s REMOTE_SUBNET [-p PORT] [-a LOCAL_ADDRESS] [-l LOCAL_PRIVATE_KEY]"
+    echo ""
+    echo "参数说明:"
+    echo "  -n SITE_NAME        站点名称 (例如: huawei, aws, gcp)"
+    echo "  -e ENDPOINT         远程 WireGuard 端点 (IP:PORT)"
+    echo "  -k PUBLIC_KEY       远程公钥"
+    echo "  -s REMOTE_SUBNET    远程内网网段 (例如: 10.0.0.0/16，多个用逗号分隔)"
+    echo "  -p PORT             本地监听端口 (默认: 自动分配从51820开始)"
+    echo "  -a LOCAL_ADDRESS    本地 WireGuard IP 地址 (例如: 10.200.0.1/24)"
+    echo "  -l LOCAL_PRIVATE_KEY 本地私钥 (可选，未提供则自动生成)"
+    echo ""
+    echo "示例:"
+    echo "  $0 -n huawei -e 1.2.3.4:51820 -k 'peer_public_key_here' -s 172.16.0.0/16 -a 10.200.0.1/24"
+}
+
+SITE_NAME=""
+ENDPOINT=""
+PUBLIC_KEY=""
+REMOTE_SUBNET=""
+PORT=""
+LOCAL_ADDRESS=""
+LOCAL_PRIVATE_KEY=""
+
+while getopts ":n:e:k:s:p:a:l:" opt; do
+    case $opt in
+        n)
+            SITE_NAME="$OPTARG"
+            ;;
+        e)
+            ENDPOINT="$OPTARG"
+            ;;
+        k)
+            PUBLIC_KEY="$OPTARG"
+            ;;
+        s)
+            REMOTE_SUBNET="$OPTARG"
+            ;;
+        p)
+            PORT="$OPTARG"
+            ;;
+        a)
+            LOCAL_ADDRESS="$OPTARG"
+            ;;
+        l)
+            LOCAL_PRIVATE_KEY="$OPTARG"
+            ;;
+        \?)
+            echo "无效的选项: -$OPTARG" >&2
+            usage
+            exit 1
+            ;;
+        :)
+            echo "选项 -$OPTARG 需要参数" >&2
+            usage
+            exit 1
+            ;;
+    esac
+done
+
+# 检查必需参数
+if [ -z "$SITE_NAME" ] || [ -z "$ENDPOINT" ] || [ -z "$PUBLIC_KEY" ] || [ -z "$REMOTE_SUBNET" ]; then
+    echo "错误: 缺少必需参数" >&2
+    usage
+    exit 1
+fi
+
+# 创建 WireGuard 配置目录
+WG_DIR="$OPENVPN/wireguard"
+mkdir -p "$WG_DIR"
+
+# 如果未指定端口，自动分配
+if [ -z "$PORT" ]; then
+    PORT=51820
+    while [ -f "$WG_DIR/wg-${SITE_NAME}.conf" ]; do
+        PORT=$((PORT + 1))
+    done
+fi
+
+# 如果未提供私钥，生成新的
+if [ -z "$LOCAL_PRIVATE_KEY" ]; then
+    LOCAL_PRIVATE_KEY=$(wg genkey)
+    LOCAL_PUBLIC_KEY=$(echo "$LOCAL_PRIVATE_KEY" | wg pubkey)
+    echo ""
+    echo "=========================================="
+    echo "已生成新的密钥对"
+    echo "=========================================="
+    echo "本地私钥: $LOCAL_PRIVATE_KEY"
+    echo "本地公钥: $LOCAL_PUBLIC_KEY"
+    echo ""
+    echo "请将本地公钥添加到远程 WireGuard 服务器的配置中"
+    echo "=========================================="
+    echo ""
+fi
+
+# 创建站点配置文件
+SITE_CONF="$WG_DIR/wg-${SITE_NAME}.conf"
+SITE_INFO="$WG_DIR/${SITE_NAME}.info"
+
+echo "正在创建 WireGuard 站点配置: $SITE_NAME"
+
+# 生成 WireGuard 配置
+cat > "$SITE_CONF" <<EOF
+[Interface]
+PrivateKey = $LOCAL_PRIVATE_KEY
+EOF
+
+# 添加本地地址（如果提供）
+if [ -n "$LOCAL_ADDRESS" ]; then
+    echo "Address = $LOCAL_ADDRESS" >> "$SITE_CONF"
+fi
+
+# 添加监听端口
+echo "ListenPort = $PORT" >> "$SITE_CONF"
+
+# 添加 Peer 配置
+cat >> "$SITE_CONF" <<EOF
+
+[Peer]
+PublicKey = $PUBLIC_KEY
+Endpoint = $ENDPOINT
+AllowedIPs = $REMOTE_SUBNET
+PersistentKeepalive = 25
+EOF
+
+# 保存站点信息（用于路由配置和管理）
+cat > "$SITE_INFO" <<EOF
+SITE_NAME="$SITE_NAME"
+ENDPOINT="$ENDPOINT"
+PUBLIC_KEY="$PUBLIC_KEY"
+REMOTE_SUBNET="$REMOTE_SUBNET"
+PORT="$PORT"
+LOCAL_ADDRESS="$LOCAL_ADDRESS"
+VPN_TYPE="wireguard"
+CREATED_AT="$(date '+%Y-%m-%d %H:%M:%S')"
+EOF
+
+# 设置权限
+chmod 600 "$SITE_CONF"
+
+echo ""
+echo "=========================================="
+echo "WireGuard 站点配置已创建"
+echo "=========================================="
+echo "配置文件: $SITE_CONF"
+echo "站点信息: $SITE_INFO"
+echo "本地端口: $PORT"
+echo "远程端点: $ENDPOINT"
+echo "远程网段: $REMOTE_SUBNET"
+echo ""
+echo "下一步:"
+echo "1. 确保远程 WireGuard 服务器已添加本地公钥"
+echo "2. 运行 'ovpn_update_routes' 更新路由配置"
+echo "3. 重启服务使配置生效: docker restart openvpn-gateway"
+echo "=========================================="
+

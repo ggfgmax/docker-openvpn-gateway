@@ -223,6 +223,10 @@ status /tmp/openvpn-status.log
 
 user nobody
 group nogroup
+
+# 启用 CRL 吊销校验（直接使用 PKI 目录下的 crl.pem，避免复制/硬链接导致文件不更新）
+# 注意：EasyRSA 会在生成 CRL 时写入 $EASYRSA_PKI/crl.pem（通常是 /etc/openvpn/pki/crl.pem）
+crl-verify $EASYRSA_PKI/crl.pem
 EOF
 
 [ -n "$OVPN_TLS_CIPHER" ] && echo "tls-cipher $OVPN_TLS_CIPHER" >> "$conf"
